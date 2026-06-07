@@ -10,6 +10,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiohttp import web
 
 import database as db
 from config import BOT_TOKEN, WEBAPP_URL
@@ -254,7 +255,67 @@ async def write_callback(callback: types.CallbackQuery):
 async def main():
     await db.init_db()
     logger.info("Bot ishga tushdi...")
+    
+    # HTTP server for web app API
+    app = web.Application()
+    app.middlewares.append(cors_middleware)
+    app.router.add_post('/api/search', search_api)
+    app.router.add_options('/api/search', handle_cors_options)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    logger.info("HTTP API server started on port 8080")
+    
     await dp.start_polling(bot)
+
+
+@web.middleware
+async def cors_middleware(request, handler):
+    if request.method == 'OPTIONS':
+        return web.Response(text='OK', headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type'
+        })
+    response = await handler(request)
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    return response
+
+
+async def handle_cors_options(request):
+    return web.Response(headers={
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+    })
+
+
+async def search_api(request):
+    """HTTP API endpoint for web app search"""
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        filters = data.get('filters', {})
+        
+        if not telegram_id:
+            return web.json_response({'error': 'telegram_id required'}, status=400)
+        
+        users = await db.search_users(int(telegram_id), filters)
+        # Clean up arrays for JSON serialization
+        clean_users = []
+        for u in users:
+            clean_user = dict(u)
+            if isinstance(clean_user.get('goals'), (list, tuple)):
+                clean_user['goals'] = list(clean_user['goals'])
+            if isinstance(clean_user.get('interests'), (list, tuple)):
+                clean_user['interests'] = list(clean_user['interests'])
+            clean_users.append(clean_user)
+        
+        return web.json_response({'success': True, 'users': clean_users})
+    except Exception as e:
+        logger.error(f"Search API error: {e}")
+        return web.json_response({'error': str(e)}, status=500)
 
 
 if __name__ == "__main__":
