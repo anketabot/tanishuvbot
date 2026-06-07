@@ -325,10 +325,10 @@ async def search_api(request):
         
         logger.info(f"🔍 SEARCH API: telegram_id={telegram_id}, filters={filters}")
         
-        if not telegram_id:
-            logger.warning("❌ SEARCH API: telegram_id missing")
-            return web.json_response({'error': 'telegram_id required'}, status=400)
-        
+        # ✅ telegram_id 0 yoki null bo'lsa ham qidirishni davom ettirish
+        if telegram_id is None:
+            telegram_id = 0
+            
         users = await db.search_users(int(telegram_id), filters)
         logger.info(f"✅ SEARCH RESULT: {len(users)} users found for {telegram_id}")
         
@@ -345,7 +345,7 @@ async def search_api(request):
         return web.json_response({'success': True, 'users': clean_users})
     except Exception as e:
         logger.error(f"❌ SEARCH API xatolik: {e}", exc_info=True)
-        return web.json_response({'error': str(e)}, status=500)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
 if __name__ == "__main__":
