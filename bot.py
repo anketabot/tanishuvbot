@@ -257,15 +257,21 @@ async def main():
     await db.init_db()
     logger.info("Bot ishga tushdi...")
     
-    # HTTP server for web app API
+    
     app = web.Application()
+    
+    
     app.middlewares.append(cors_middleware)
+    
+    
     app.router.add_post('/api/search', search_api)
-    app.router.add_options('/api/search', handle_cors_options)
+    
+    # ❌ ESKI: Bu kerak emas!
+    # app.router.add_options('/api/search', handle_cors_options)
+    
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # 🆕 Railway/Heroku PORT ni o'qish
     port = int(os.environ.get('PORT', 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
@@ -276,16 +282,31 @@ async def main():
 
 @web.middleware
 async def cors_middleware(request, handler):
+    # ❌ ESKI: Faqat OPTIONS tekshiruvi
+    # if request.method == 'OPTIONS':
+    #     return web.Response(text='OK', headers={...})
+    
+    # ✅ YANGI: Har doim CORS headerlarini qo'shish
     if request.method == 'OPTIONS':
-        return web.Response(text='OK', headers={
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
-        })
+        return web.Response(
+            text='',
+            status=200,
+            headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+                'Access-Control-Max-Age': '86400',
+            }
+        )
+    
     response = await handler(request)
+    
+    # Har doim CORS headerlarini qo'shish
     response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    
     return response
-
 
 async def handle_cors_options(request):
     return web.Response(headers={
