@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -263,9 +264,12 @@ async def main():
     app.router.add_options('/api/search', handle_cors_options)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    
+    # 🆕 Railway/Heroku PORT ni o'qish
+    port = int(os.environ.get('PORT', 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    logger.info("HTTP API server started on port 8080")
+    logger.info(f"✅ HTTP API server started on port {port}")
     
     await dp.start_polling(bot)
 
@@ -298,10 +302,15 @@ async def search_api(request):
         telegram_id = data.get('telegram_id')
         filters = data.get('filters', {})
         
+        logger.info(f"🔍 SEARCH API: telegram_id={telegram_id}, filters={filters}")
+        
         if not telegram_id:
+            logger.warning("❌ SEARCH API: telegram_id missing")
             return web.json_response({'error': 'telegram_id required'}, status=400)
         
         users = await db.search_users(int(telegram_id), filters)
+        logger.info(f"✅ SEARCH RESULT: {len(users)} users found for {telegram_id}")
+        
         # Clean up arrays for JSON serialization
         clean_users = []
         for u in users:
@@ -314,7 +323,7 @@ async def search_api(request):
         
         return web.json_response({'success': True, 'users': clean_users})
     except Exception as e:
-        logger.error(f"Search API error: {e}")
+        logger.error(f"❌ SEARCH API xatolik: {e}", exc_info=True)
         return web.json_response({'error': str(e)}, status=500)
 
 
