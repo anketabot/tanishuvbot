@@ -24,8 +24,7 @@ dp = Dispatcher(storage=MemoryStorage())
 def main_menu_keyboard():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📝 Anketa to'ldirish", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html?page=profile"))],
-            [KeyboardButton(text="🔍 Qidirish", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html?page=search"))],
+            [KeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))],
             [KeyboardButton(text="👤 Mening anketam"), KeyboardButton(text="📨 Do'stlarni taklif qilish")],
         ],
         resize_keyboard=True
@@ -60,7 +59,7 @@ async def start_handler(message: types.Message):
         f"👋 Assalomu alaykum, {message.from_user.first_name}!\n\n"
         "💙 *Do'stlik & Tanishuv Botiga xush kelibsiz!*\n\n"
         "Bu yerda siz yangi do'stlar topishingiz, muloqot qilishingiz mumkin.\n\n"
-        "📝 Boshlash uchun anketangizni to'ldiring!",
+        "🌐 Web App orqali boshlang!",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
