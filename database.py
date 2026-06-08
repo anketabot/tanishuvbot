@@ -261,6 +261,48 @@ async def get_invite_count(telegram_id):
         await conn.close()
 
 
+async def get_all_users():
+    conn = await get_db()
+    try:
+        rows = await conn.fetch(
+            "SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64, invited_friends, created_at "
+            "FROM users WHERE is_active = TRUE ORDER BY created_at DESC"
+        )
+        return [dict(row) for row in rows]
+    finally:
+        await conn.close()
+
+
+async def get_user_stats():
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT COUNT(*) AS total, "
+            "COUNT(*) FILTER (WHERE gender = 'erkak') AS male, "
+            "COUNT(*) FILTER (WHERE gender = 'ayol') AS female, "
+            "AVG(age) AS avg_age "
+            "FROM users "
+            "WHERE is_active = TRUE"
+        )
+        return dict(row) if row else {'total': 0, 'male': 0, 'female': 0, 'avg_age': None}
+    finally:
+        await conn.close()
+
+
+async def get_top_cities(limit=10):
+    conn = await get_db()
+    try:
+        rows = await conn.fetch(
+            "SELECT city, COUNT(*) AS count FROM users "
+            "WHERE city IS NOT NULL AND city <> '' AND is_active = TRUE "
+            "GROUP BY city ORDER BY count DESC LIMIT $1",
+            limit
+        )
+        return [dict(row) for row in rows]
+    finally:
+        await conn.close()
+
+
 async def can_write(from_user, to_user):
     """Check if from_user can write to to_user"""
     conn = await get_db()
