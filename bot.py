@@ -316,6 +316,21 @@ async def handle_cors_options(request):
     })
 
 
+def serialize_value(value):
+    if isinstance(value, (list, tuple)):
+        return [serialize_value(v) for v in value]
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return value
+
+
+def serialize_user(user):
+    clean_user = {}
+    for key, value in user.items():
+        clean_user[key] = serialize_value(value)
+    return clean_user
+
+
 async def search_api(request):
     """HTTP API endpoint for web app search"""
     try:
@@ -332,15 +347,7 @@ async def search_api(request):
         users = await db.search_users(int(telegram_id), filters)
         logger.info(f"✅ SEARCH RESULT: {len(users)} users found for {telegram_id}")
         
-        # Clean up arrays for JSON serialization
-        clean_users = []
-        for u in users:
-            clean_user = dict(u)
-            if isinstance(clean_user.get('goals'), (list, tuple)):
-                clean_user['goals'] = list(clean_user['goals'])
-            if isinstance(clean_user.get('interests'), (list, tuple)):
-                clean_user['interests'] = list(clean_user['interests'])
-            clean_users.append(clean_user)
+        clean_users = [serialize_user(dict(u)) for u in users]
         
         return web.json_response({'success': True, 'users': clean_users})
     except Exception as e:
