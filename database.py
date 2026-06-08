@@ -222,17 +222,27 @@ async def register_invite(inviter_id, invited_id):
     conn = await get_db()
     try:
         existing = await conn.fetchrow(
-            "SELECT id FROM invites WHERE invited_id = $1", invited_id
+            "SELECT id FROM invites WHERE inviter_id = $1 AND invited_id = $2",
+            inviter_id, invited_id
         )
         if existing:
+            return False
+
+        already_invited = await conn.fetchrow(
+            "SELECT id FROM invites WHERE invited_id = $1",
+            invited_id
+        )
+        if already_invited:
             return False
 
         await conn.execute(
             "INSERT INTO invites (inviter_id, invited_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             inviter_id, invited_id
         )
+
         await conn.execute(
-            "UPDATE users SET invited_friends = invited_friends + 1 WHERE telegram_id = $1",
+            "INSERT INTO users (telegram_id, invited_friends, is_active) VALUES ($1, 1, TRUE) "
+            "ON CONFLICT (telegram_id) DO UPDATE SET invited_friends = users.invited_friends + 1",
             inviter_id
         )
         return True
