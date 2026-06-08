@@ -6,8 +6,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
-    WebAppInfo, KeyboardButton, ReplyKeyboardMarkup,
-    ReplyKeyboardRemove
+    WebAppInfo
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -24,13 +23,11 @@ dp = Dispatcher(storage=MemoryStorage())
 
 
 def main_menu_keyboard():
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))],
-            [KeyboardButton(text="👤 Mening anketam"), KeyboardButton(text="📨 Do'stlarni taklif qilish")],
-        ],
-        resize_keyboard=True
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))],
+        [InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile")],
+        [InlineKeyboardButton(text="📨 Do'stlarni taklif qilish", callback_data="invite_friends")],
+    ])
     return keyboard
 
 
@@ -109,6 +106,52 @@ async def invite_friends(message: types.Message):
     )
 
     await message.answer(text, parse_mode="Markdown")
+
+
+@dp.callback_query(F.data == "show_profile")
+async def show_profile_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    user = await db.get_user(callback.from_user.id)
+    if not user:
+        await callback.message.answer("❌ Siz hali anketa to'ldirgmansiz. Iltimos, avval anketangizni to'ldiring.")
+        return
+
+    gender_icon = "👨" if user["gender"] == "erkak" else "👩"
+    goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
+    interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
+
+    text = (
+        f"{gender_icon} *{user['full_name']}*\n"
+        f"🎂 Yosh: {user['age']}\n"
+        f"📍 Shahar: {user['city']}\n"
+        f"⭐ Burj: {user['zodiac'] or 'ko\'rsatilmagan'}\n"
+        f"❤️ Maqsad: {goals_text}\n"
+        f"🎯 Qiziqishlar: {interests_text}\n"
+        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/2"
+    )
+
+    if user.get("photo_file_id"):
+        await callback.message.answer_photo(user["photo_file_id"], caption=text, parse_mode="Markdown")
+    else:
+        await callback.message.answer(text, parse_mode="Markdown")
+
+
+@dp.callback_query(F.data == "invite_friends")
+async def invite_friends_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    telegram_id = callback.from_user.id
+    count = await db.get_invite_count(telegram_id)
+    invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{telegram_id}"
+
+    text = (
+        f"📨 *Do'stlarni taklif qiling!*\n\n"
+        f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
+        f"👥 Taklif qilganlar: *{count}/2*\n"
+        f"{'✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!' if count >= 2 else f'⏳ Yana {2 - count} ta do\'stingizni taklif qiling!'}\n\n"
+        f"🔗 Sizning havola:\n`{invite_link}`"
+    )
+
+    await callback.message.answer(text, parse_mode="Markdown")
 
 
 @dp.message(F.web_app_data)
@@ -265,6 +308,7 @@ async def main():
     
     
     app.router.add_post('/api/search', search_api)
+    app.router.add_post('/api/profile', profile_api)
     
     # ❌ ESKI: Bu kerak emas!
     # app.router.add_options('/api/search', handle_cors_options)
@@ -337,21 +381,38 @@ async def search_api(request):
         data = await request.json()
         telegram_id = data.get('telegram_id')
         filters = data.get('filters', {})
-        
         logger.info(f"🔍 SEARCH API: telegram_id={telegram_id}, filters={filters}")
-        
-        # ✅ telegram_id 0 yoki null bo'lsa ham qidirishni davom ettirish
+
         if telegram_id is None:
             telegram_id = 0
-            
+
         users = await db.search_users(int(telegram_id), filters)
         logger.info(f"✅ SEARCH RESULT: {len(users)} users found for {telegram_id}")
-        
+
         clean_users = [serialize_user(dict(u)) for u in users]
-        
         return web.json_response({'success': True, 'users': clean_users})
+
     except Exception as e:
         logger.error(f"❌ SEARCH API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def profile_api(request):
+    """HTTP API endpoint for web app profile retrieval"""
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+
+        if telegram_id is None:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+
+        user = await db.get_user(int(telegram_id))
+        if user:
+            return web.json_response({'success': True, 'user': serialize_user(user)})
+
+        return web.json_response({'success': True, 'user': None})
+    except Exception as e:
+        logger.error(f"❌ PROFILE API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
