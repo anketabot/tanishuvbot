@@ -309,6 +309,7 @@ async def main():
     
     app.router.add_post('/api/search', search_api)
     app.router.add_post('/api/profile', profile_api)
+    app.router.add_post('/api/save_profile', save_profile_api)
     app.router.add_post('/api/admin/users', admin_users_api)
     app.router.add_post('/api/admin/analytics', admin_analytics_api)
 
@@ -412,6 +413,29 @@ async def profile_api(request):
         return web.json_response({'success': True, 'user': None})
     except Exception as e:
         logger.error(f"❌ PROFILE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def save_profile_api(request):
+    """HTTP API endpoint for web app profile save"""
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        profile = data.get('profile', {})
+
+        if telegram_id is None:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+
+        if not profile:
+            return web.json_response({'success': False, 'error': 'profile required'}, status=400)
+
+        profile['telegram_id'] = int(telegram_id)
+        profile['username'] = profile.get('username')
+
+        success = await db.save_user(int(telegram_id), profile)
+        return web.json_response({'success': success})
+    except Exception as e:
+        logger.error(f"❌ SAVE PROFILE API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
