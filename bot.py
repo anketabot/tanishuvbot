@@ -13,7 +13,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 
 import database as db
-from config import BOT_TOKEN, WEBAPP_URL
+from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -309,13 +309,12 @@ async def main():
     
     app.router.add_post('/api/search', search_api)
     app.router.add_post('/api/profile', profile_api)
-    
-    # ❌ ESKI: Bu kerak emas!
-    # app.router.add_options('/api/search', handle_cors_options)
-    
+    app.router.add_post('/api/admin/users', admin_users_api)
+    app.router.add_post('/api/admin/analytics', admin_analytics_api)
+
     runner = web.AppRunner(app)
     await runner.setup()
-    
+
     port = int(os.environ.get('PORT', 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
@@ -413,6 +412,42 @@ async def profile_api(request):
         return web.json_response({'success': True, 'user': None})
     except Exception as e:
         logger.error(f"❌ PROFILE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def admin_users_api(request):
+    """HTTP API endpoint for admin user list"""
+    try:
+        data = await request.json()
+        if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+
+        users = await db.get_all_users()
+        clean_users = [serialize_user(u) for u in users]
+        return web.json_response({'success': True, 'users': clean_users})
+    except Exception as e:
+        logger.error(f"❌ ADMIN USERS API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def admin_analytics_api(request):
+    """HTTP API endpoint for admin analytics"""
+    try:
+        data = await request.json()
+        if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+
+        stats = await db.get_user_stats()
+        top_cities = await db.get_top_cities(10)
+        return web.json_response({'success': True, 'analytics': {
+            'total': stats.get('total', 0),
+            'male': stats.get('male', 0),
+            'female': stats.get('female', 0),
+            'avg_age': float(stats.get('avg_age')) if stats.get('avg_age') is not None else None,
+            'top_cities': top_cities
+        }})
+    except Exception as e:
+        logger.error(f"❌ ADMIN ANALYTICS API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
