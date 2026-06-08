@@ -23,10 +23,15 @@ async def init_db():
                 zodiac TEXT,
                 goals TEXT[],
                 photo_file_id TEXT,
+                photo_base64 TEXT,
                 invited_friends INTEGER DEFAULT 0,
                 is_active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW()
             )
+        """)
+
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_base64 TEXT
         """)
 
         await conn.execute("""
@@ -76,8 +81,8 @@ async def save_user(telegram_id, data):
     conn = await get_db()
     try:
         await conn.execute("""
-            INSERT INTO users (telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO users (telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (telegram_id) DO UPDATE SET
                 username = EXCLUDED.username,
                 full_name = EXCLUDED.full_name,
@@ -88,6 +93,7 @@ async def save_user(telegram_id, data):
                 zodiac = EXCLUDED.zodiac,
                 goals = EXCLUDED.goals,
                 photo_file_id = EXCLUDED.photo_file_id,
+                photo_base64 = EXCLUDED.photo_base64,
                 is_active = TRUE
         """,
             telegram_id,
@@ -99,7 +105,8 @@ async def save_user(telegram_id, data):
             data.get("interests", []),
             data.get("zodiac"),
             data.get("goals", []),
-            data.get("photo_file_id")
+            data.get("photo_file_id"),
+            data.get("photo_base64")
         )
         return True
     except Exception as e:
@@ -136,7 +143,7 @@ async def search_users(telegram_id, filters):
         excluded.extend(liked)
 
         query = """
-            SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id
+            SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
