@@ -166,10 +166,6 @@ async def web_app_data_handler(message: types.Message):
             profile_data["username"] = message.from_user.username
             profile_data["telegram_id"] = message.from_user.id
 
-            # Agar rasm file_id bilan yuborilsa
-            if profile_data.get("photo_file_id"):
-                pass  # Bot.py da alohida rasm qabul qilamiz
-
             success = await db.save_user(message.from_user.id, profile_data)
             if success:
                 await message.answer(
@@ -296,69 +292,7 @@ async def write_callback(callback: types.CallbackQuery):
         )
 
 
-async def main():
-    await db.init_db()
-    logger.info("Bot ishga tushdi...")
-    
-    
-    app = web.Application()
-    
-    
-    app.middlewares.append(cors_middleware)
-    
-    
-    app.router.add_post('/api/search', search_api)
-    app.router.add_post('/api/profile', profile_api)
-    app.router.add_post('/api/save_profile', save_profile_api)
-    app.router.add_post('/api/admin/users', admin_users_api)
-    app.router.add_post('/api/admin/analytics', admin_analytics_api)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-
-    port = int(os.environ.get('PORT', 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(f"✅ HTTP API server started on port {port}")
-    
-    await dp.start_polling(bot)
-
-
-@web.middleware
-async def cors_middleware(request, handler):
-    # ❌ ESKI: Faqat OPTIONS tekshiruvi
-    # if request.method == 'OPTIONS':
-    #     return web.Response(text='OK', headers={...})
-    
-    # ✅ YANGI: Har doim CORS headerlarini qo'shish
-    if request.method == 'OPTIONS':
-        return web.Response(
-            text='',
-            status=200,
-            headers={
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-                'Access-Control-Max-Age': '86400',
-            }
-        )
-    
-    response = await handler(request)
-    
-    # Har doim CORS headerlarini qo'shish
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    
-    return response
-
-async def handle_cors_options(request):
-    return web.Response(headers={
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
-    })
-
+# ========== HTTP API ==========
 
 def serialize_value(value):
     if isinstance(value, (list, tuple)):
@@ -375,92 +309,93 @@ def serialize_user(user):
     return clean_user
 
 
+@web.middleware
+async def cors_middleware(request, handler):
+    if request.method == 'OPTIONS':
+        return web.Response(
+            text='',
+            status=200,
+            headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+                'Access-Control-Max-Age': '86400',
+            }
+        )
+    
+    response = await handler(request)
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return response
+
+
 async def search_api(request):
-    """HTTP API endpoint for web app search"""
     try:
         data = await request.json()
         telegram_id = data.get('telegram_id')
         filters = data.get('filters', {})
-        logger.info(f"🔍 SEARCH API: telegram_id={telegram_id}, filters={filters}")
-
         if telegram_id is None:
             telegram_id = 0
-
         users = await db.search_users(int(telegram_id), filters)
-        logger.info(f"✅ SEARCH RESULT: {len(users)} users found for {telegram_id}")
-
-        clean_users = [serialize_user(dict(u)) for u in users]
+        clean_users = [serialize_user(u) for u in users]
         return web.json_response({'success': True, 'users': clean_users})
-
     except Exception as e:
-        logger.error(f"❌ SEARCH API xatolik: {e}", exc_info=True)
+        logger.error(f"SEARCH API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
 async def profile_api(request):
-    """HTTP API endpoint for web app profile retrieval"""
     try:
         data = await request.json()
         telegram_id = data.get('telegram_id')
-
         if telegram_id is None:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
-
         user = await db.get_user(int(telegram_id))
         if user:
             return web.json_response({'success': True, 'user': serialize_user(user)})
-
         return web.json_response({'success': True, 'user': None})
     except Exception as e:
-        logger.error(f"❌ PROFILE API xatolik: {e}", exc_info=True)
+        logger.error(f"PROFILE API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
 async def save_profile_api(request):
-    """HTTP API endpoint for web app profile save"""
     try:
         data = await request.json()
         telegram_id = data.get('telegram_id')
         profile = data.get('profile', {})
-
         if telegram_id is None:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
-
         if not profile:
             return web.json_response({'success': False, 'error': 'profile required'}, status=400)
-
         profile['telegram_id'] = int(telegram_id)
         profile['username'] = profile.get('username')
-
         success = await db.save_user(int(telegram_id), profile)
         return web.json_response({'success': success})
     except Exception as e:
-        logger.error(f"❌ SAVE PROFILE API xatolik: {e}", exc_info=True)
+        logger.error(f"SAVE PROFILE API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
 async def admin_users_api(request):
-    """HTTP API endpoint for admin user list"""
     try:
         data = await request.json()
         if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
             return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
-
         users = await db.get_all_users()
         clean_users = [serialize_user(u) for u in users]
         return web.json_response({'success': True, 'users': clean_users})
     except Exception as e:
-        logger.error(f"❌ ADMIN USERS API xatolik: {e}", exc_info=True)
+        logger.error(f"ADMIN USERS API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
 async def admin_analytics_api(request):
-    """HTTP API endpoint for admin analytics"""
     try:
         data = await request.json()
         if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
             return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
-
         stats = await db.get_user_stats()
         top_cities = await db.get_top_cities(10)
         return web.json_response({'success': True, 'analytics': {
@@ -471,8 +406,169 @@ async def admin_analytics_api(request):
             'top_cities': top_cities
         }})
     except Exception as e:
-        logger.error(f"❌ ADMIN ANALYTICS API xatolik: {e}", exc_info=True)
+        logger.error(f"ADMIN ANALYTICS API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+# ========== CHAT API ENDPOINTS ==========
+
+async def likes_received_api(request):
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        likes = await db.get_pending_likes(int(telegram_id))
+        return web.json_response({'success': True, 'likes': [serialize_user(u) for u in likes]})
+    except Exception as e:
+        logger.error(f"LIKES RECEIVED API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def accept_like_api(request):
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        from_user = data.get('from_user')
+        if not telegram_id or not from_user:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        
+        match_id = await db.accept_like(int(telegram_id), int(from_user))
+        if match_id:
+            to_data = await db.get_user(int(telegram_id))
+            from_data = await db.get_user(int(from_user))
+            if to_data and from_data:
+                try:
+                    await bot.send_message(
+                        int(from_user),
+                        f"🎉 *{to_data['full_name']}* sizning like-ingizni qabul qildi!\n\n💬 Endi Web App'dagi Chat bo'limidan suhbat boshlashingiz mumkin.",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Notify liker error: {e}")
+                try:
+                    await bot.send_message(
+                        int(telegram_id),
+                        f"✅ Siz *{from_data['full_name']}* bilan muloqotni boshladingiz!",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Notify accepter error: {e}")
+            return web.json_response({'success': True, 'match_id': match_id})
+        return web.json_response({'success': False, 'error': 'Like not found'}, status=404)
+    except Exception as e:
+        logger.error(f"ACCEPT LIKE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def matches_api(request):
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        matches = await db.get_matches(int(telegram_id))
+        return web.json_response({'success': True, 'matches': [serialize_user(m) for m in matches]})
+    except Exception as e:
+        logger.error(f"MATCHES API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def chat_messages_api(request):
+    try:
+        data = await request.json()
+        match_id = data.get('match_id')
+        if not match_id:
+            return web.json_response({'success': False, 'error': 'match_id required'}, status=400)
+        messages = await db.get_chat_messages(int(match_id))
+        # Mark as read (optional, could be separate call)
+        return web.json_response({'success': True, 'messages': [serialize_user(m) for m in messages]})
+    except Exception as e:
+        logger.error(f"CHAT MESSAGES API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def send_chat_api(request):
+    try:
+        data = await request.json()
+        match_id = data.get('match_id')
+        sender_id = data.get('sender_id')
+        message = data.get('message', '').strip()
+        if not match_id or not sender_id or not message:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        success = await db.send_chat_message(int(match_id), int(sender_id), message)
+        return web.json_response({'success': success})
+    except Exception as e:
+        logger.error(f"SEND CHAT API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def can_write_api(request):
+    try:
+        data = await request.json()
+        from_user = data.get('from_user')
+        to_user = data.get('to_user')
+        if from_user is None or to_user is None:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        can = await db.can_write(int(from_user), int(to_user))
+        return web.json_response({'success': True, 'can_write': can})
+    except Exception as e:
+        logger.error(f"CAN WRITE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def initiate_chat_api(request):
+    try:
+        data = await request.json()
+        from_user = data.get('from_user')
+        to_user = data.get('to_user')
+        if not from_user or not to_user:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        
+        can = await db.can_write(int(from_user), int(to_user))
+        if not can:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+        
+        match_id = await db.create_match(int(from_user), int(to_user))
+        if match_id:
+            return web.json_response({'success': True, 'match_id': match_id})
+        return web.json_response({'success': False, 'error': 'Failed to create match'}, status=500)
+    except Exception as e:
+        logger.error(f"INITIATE CHAT API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def main():
+    await db.init_db()
+    logger.info("Bot ishga tushdi...")
+    
+    app = web.Application()
+    app.middlewares.append(cors_middleware)
+    
+    app.router.add_post('/api/search', search_api)
+    app.router.add_post('/api/profile', profile_api)
+    app.router.add_post('/api/save_profile', save_profile_api)
+    app.router.add_post('/api/admin/users', admin_users_api)
+    app.router.add_post('/api/admin/analytics', admin_analytics_api)
+    
+    # Chat routes
+    app.router.add_post('/api/likes/received', likes_received_api)
+    app.router.add_post('/api/likes/accept', accept_like_api)
+    app.router.add_post('/api/matches', matches_api)
+    app.router.add_post('/api/chat/messages', chat_messages_api)
+    app.router.add_post('/api/chat/send', send_chat_api)
+    app.router.add_post('/api/can_write', can_write_api)
+    app.router.add_post('/api/initiate_chat', initiate_chat_api)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(os.environ.get('PORT', 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"✅ HTTP API server started on port {port}")
+    
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
