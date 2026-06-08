@@ -408,6 +408,19 @@ async def accept_like(telegram_id, from_user):
         await conn.close()
 
 
+async def reject_like(telegram_id, from_user):
+    """Reject a like from from_user and remove the pending like."""
+    conn = await get_db()
+    try:
+        result = await conn.execute(
+            "DELETE FROM likes WHERE from_user = $1 AND to_user = $2",
+            from_user, telegram_id
+        )
+        return result == 'DELETE 1'
+    finally:
+        await conn.close()
+
+
 async def get_matches(telegram_id):
     """Get all matches for user with other user details"""
     conn = await get_db()
