@@ -136,7 +136,8 @@ async def search_users(telegram_id, filters):
         excluded.extend(liked)
 
         query = """
-            SELECT * FROM users
+            SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id
+            FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
         """
