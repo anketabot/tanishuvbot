@@ -179,20 +179,35 @@ async def web_app_data_handler(message: types.Message):
         elif action == "like_user":
             to_user = int(data.get("to_user"))
             is_match = await db.add_like(message.from_user.id, to_user)
+            to_user_data = await db.get_user(to_user)
+            my_data = await db.get_user(message.from_user.id)
             if is_match:
-                to_user_data = await db.get_user(to_user)
-                my_data = await db.get_user(message.from_user.id)
-                await message.answer(
-                    f"🎉 *Match! {to_user_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
-                    parse_mode="Markdown"
-                )
-                await bot.send_message(
-                    to_user,
-                    f"🎉 *Match! {my_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
-                    parse_mode="Markdown"
-                )
+                if to_user_data and my_data:
+                    await message.answer(
+                        f"🎉 *Match! {to_user_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                        parse_mode="Markdown"
+                    )
+                    try:
+                        await bot.send_message(
+                            to_user,
+                            f"🎉 *Match! {my_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        logger.error(f"Match notify error: {e}")
+                else:
+                    await message.answer("🎉 Match bo'ldi! Endi muloqot qiling.")
             else:
                 await message.answer("💙 Like yuborildi! Agar u ham sizni yoqtirsa, xabar beramiz.")
+                if to_user_data and my_data:
+                    try:
+                        await bot.send_message(
+                            to_user,
+                            f"💌 *{my_data['full_name']}* sizni like qildi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        logger.error(f"Like notification error: {e}")
 
         elif action == "block_user":
             blocked_id = int(data.get("blocked_id"))
@@ -461,6 +476,34 @@ async def accept_like_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+async def reject_like_api(request):
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        from_user = data.get('from_user')
+        if not telegram_id or not from_user:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+
+        rejected = await db.reject_like(int(telegram_id), int(from_user))
+        if rejected:
+            to_data = await db.get_user(int(telegram_id))
+            from_data = await db.get_user(int(from_user))
+            if to_data and from_data:
+                try:
+                    await bot.send_message(
+                        int(from_user),
+                        f"❌ *{to_data['full_name']}* sizni rad qildi.\n\nKeyinroq yana sinab ko'ring.",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Notify reject error: {e}")
+            return web.json_response({'success': True})
+        return web.json_response({'success': False, 'error': 'Like topilmadi'}, status=404)
+    except Exception as e:
+        logger.error(f"REJECT LIKE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def matches_api(request):
     try:
         data = await request.json()
@@ -554,6 +597,7 @@ async def main():
     # Chat routes
     app.router.add_post('/api/likes/received', likes_received_api)
     app.router.add_post('/api/likes/accept', accept_like_api)
+    app.router.add_post('/api/likes/reject', reject_like_api)
     app.router.add_post('/api/matches', matches_api)
     app.router.add_post('/api/chat/messages', chat_messages_api)
     app.router.add_post('/api/chat/send', send_chat_api)
