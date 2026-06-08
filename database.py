@@ -73,6 +73,17 @@ async def init_db():
                 UNIQUE(inviter_id, invited_id)
             )
         """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id BIGSERIAL PRIMARY KEY,
+                match_id BIGINT NOT NULL,
+                sender_id BIGINT NOT NULL,
+                message TEXT NOT NULL,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
     finally:
         await conn.close()
 
@@ -178,7 +189,28 @@ async def search_users(telegram_id, filters):
 
         query += " LIMIT 20"
         rows = await conn.fetch(query, *params)
-        return [dict(r) for r in rows]
+
+        # can_write tekshiruvi
+        match_rows = await conn.fetch(
+            "SELECT user1, user2 FROM matches WHERE user1 = $1 OR user2 = $1",
+            telegram_id
+        )
+        match_ids = set()
+        for mr in match_rows:
+            other = mr['user1'] if mr['user2'] == telegram_id else mr['user2']
+            match_ids.add(other)
+
+        inviter_row = await conn.fetchrow(
+            "SELECT invited_friends FROM users WHERE telegram_id = $1", telegram_id
+        )
+        inviter_count = inviter_row['invited_friends'] if inviter_row else 0
+
+        result = []
+        for row in rows:
+            user = dict(row)
+            user['can_write'] = user['telegram_id'] in match_ids or inviter_count >= 2
+            result.append(user)
+        return result
     finally:
         await conn.close()
 
@@ -323,5 +355,131 @@ async def can_write(from_user, to_user):
             return True
 
         return False
+    finally:
+        await conn.close()
+
+
+# ========== CHAT & MATCH FUNCTIONS ==========
+
+async def get_pending_likes(telegram_id):
+    """Get users who liked telegram_id but not matched yet"""
+    conn = await get_db()
+    try:
+        rows = await conn.fetch("""
+            SELECT u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city, 
+                   u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64, l.created_at
+            FROM likes l
+            JOIN users u ON u.telegram_id = l.from_user
+            WHERE l.to_user = $1
+            AND NOT EXISTS (
+                SELECT 1 FROM matches m 
+                WHERE (m.user1 = l.from_user AND m.user2 = l.to_user)
+                OR (m.user1 = l.to_user AND m.user2 = l.from_user)
+            )
+            ORDER BY l.created_at DESC
+        """, telegram_id)
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+async def accept_like(telegram_id, from_user):
+    """Accept a like from from_user, create match, return match_id"""
+    conn = await get_db()
+    try:
+        like = await conn.fetchrow(
+            "SELECT id FROM likes WHERE from_user = $1 AND to_user = $2",
+            from_user, telegram_id
+        )
+        if not like:
+            return None
+        
+        u1, u2 = min(from_user, telegram_id), max(from_user, telegram_id)
+        row = await conn.fetchrow(
+            "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
+            u1, u2
+        )
+        if not row:
+            row = await conn.fetchrow(
+                "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2", u1, u2
+            )
+        return row['id'] if row else None
+    finally:
+        await conn.close()
+
+
+async def get_matches(telegram_id):
+    """Get all matches for user with other user details"""
+    conn = await get_db()
+    try:
+        rows = await conn.fetch("""
+            SELECT m.id as match_id, m.created_at as matched_at,
+                   u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
+                   u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64
+            FROM matches m
+            JOIN users u ON (
+                CASE 
+                    WHEN m.user1 = $1 THEN m.user2 = u.telegram_id
+                    ELSE m.user1 = u.telegram_id
+                END
+            )
+            WHERE m.user1 = $1 OR m.user2 = $1
+            ORDER BY m.created_at DESC
+        """, telegram_id)
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+async def create_match(user1, user2):
+    conn = await get_db()
+    try:
+        u1, u2 = min(user1, user2), max(user1, user2)
+        row = await conn.fetchrow(
+            "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
+            u1, u2
+        )
+        if not row:
+            row = await conn.fetchrow(
+                "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2", u1, u2
+            )
+        return row['id'] if row else None
+    finally:
+        await conn.close()
+
+
+async def get_chat_messages(match_id, limit=50):
+    conn = await get_db()
+    try:
+        rows = await conn.fetch(
+            "SELECT * FROM chat_messages WHERE match_id = $1 ORDER BY created_at DESC LIMIT $2",
+            match_id, limit
+        )
+        return [dict(r) for r in rows][::-1]
+    finally:
+        await conn.close()
+
+
+async def send_chat_message(match_id, sender_id, message):
+    conn = await get_db()
+    try:
+        await conn.execute(
+            "INSERT INTO chat_messages (match_id, sender_id, message) VALUES ($1, $2, $3)",
+            match_id, sender_id, message
+        )
+        return True
+    except Exception:
+        return False
+    finally:
+        await conn.close()
+
+
+async def mark_messages_read(match_id, reader_id):
+    conn = await get_db()
+    try:
+        await conn.execute(
+            "UPDATE chat_messages SET is_read = TRUE WHERE match_id = $1 AND sender_id != $2",
+            match_id, reader_id
+        )
     finally:
         await conn.close()
