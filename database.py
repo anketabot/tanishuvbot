@@ -147,12 +147,6 @@ async def search_users(telegram_id, filters):
         )
         excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
 
-        liked_ids = await conn.fetch(
-            "SELECT to_user FROM likes WHERE from_user = $1", telegram_id
-        )
-        liked = [r["to_user"] for r in liked_ids]
-        excluded.extend(liked)
-
         query = """
             SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64
             FROM users
