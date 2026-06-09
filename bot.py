@@ -44,10 +44,10 @@ async def start_handler(message: types.Message):
                 registered = await db.register_invite(inviter_id, telegram_id)
                 if registered:
                     count = await db.get_invite_count(inviter_id)
+                    status_text = "✅ Endi siz bepul yozishingiz mumkin!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stni taklif qiling!"
                     await bot.send_message(
                         inviter_id,
-                        f"🎉 Yangi do'st siz orqali qo'shildi! Jami taklif qilganlar: {count}/2\n"
-                        + ("✅ Endi siz bepul yozishingiz mumkin!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stni taklif qiling!")
+                        f"🎉 Yangi do'st siz orqali qo'shildi! Jami taklif qilganlar: {count}/2\n{status_text}"
                     )
         except Exception as e:
             logger.error(f"Referral error: {e}")
@@ -74,12 +74,13 @@ async def my_profile(message: types.Message):
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
     goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
     interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
+    zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
 
     text = (
         f"{gender_icon} *{user['full_name']}*\n"
         f"🎂 Yosh: {user['age']}\n"
         f"📍 Shahar: {user['city']}\n"
-        f"⭐ Burj: {user['zodiac'] or 'ko\'rsatilmagan'}\n"
+        f"⭐ Burj: {zodiac_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
         f"🎯 Qiziqishlar: {interests_text}\n"
         f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/2"
@@ -101,7 +102,10 @@ async def invite_friends(message: types.Message):
         f"📨 *Do'stlarni taklif qiling!*\n\n"
         f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
         f"👥 Taklif qilganlar: *{count}/2*\n"
-        f"{'✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!' if count >= 2 else f'⏳ Yana {2 - count} ta do\'stingizni taklif qiling!'}\n\n"
+    )
+    status_msg = "✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stingizni taklif qiling!"
+    text += (
+        f"{status_msg}\n\n"
         f"🔗 Sizning havola:\n`{invite_link}`"
     )
 
@@ -119,12 +123,13 @@ async def show_profile_callback(callback: types.CallbackQuery):
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
     goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
     interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
+    zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
 
     text = (
         f"{gender_icon} *{user['full_name']}*\n"
         f"🎂 Yosh: {user['age']}\n"
         f"📍 Shahar: {user['city']}\n"
-        f"⭐ Burj: {user['zodiac'] or 'ko\'rsatilmagan'}\n"
+        f"⭐ Burj: {zodiac_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
         f"🎯 Qiziqishlar: {interests_text}\n"
         f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/2"
@@ -147,7 +152,10 @@ async def invite_friends_callback(callback: types.CallbackQuery):
         f"📨 *Do'stlarni taklif qiling!*\n\n"
         f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
         f"👥 Taklif qilganlar: *{count}/2*\n"
-        f"{'✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!' if count >= 2 else f'⏳ Yana {2 - count} ta do\'stingizni taklif qiling!'}\n\n"
+    )
+    status_msg = "✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stingizni taklif qiling!"
+    text += (
+        f"{status_msg}\n\n"
         f"🔗 Sizning havola:\n`{invite_link}`"
     )
 
@@ -590,6 +598,51 @@ async def initiate_chat_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+async def like_send_api(request):
+    try:
+        data = await request.json()
+        from_user = data.get('from_user')
+        to_user = data.get('to_user')
+        if not from_user or not to_user:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        
+        is_match = await db.add_like(int(from_user), int(to_user))
+        to_user_data = await db.get_user(int(to_user))
+        from_user_data = await db.get_user(int(from_user))
+        
+        if is_match:
+            if to_user_data and from_user_data:
+                try:
+                    await bot.send_message(
+                        int(to_user),
+                        f"🎉 *Match! {from_user_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                        parse_mode="Markdown"
+                    )
+                    await bot.send_message(
+                        int(from_user),
+                        f"🎉 *Match! {to_user_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Match notify error: {e}")
+            return web.json_response({'success': True, 'match': True})
+        else:
+            if to_user_data and from_user_data:
+                try:
+                    await bot.send_message(
+                        int(to_user),
+                        f"💌 *{from_user_data['full_name']}* sizni like qildi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
+                        parse_mode="Markdown"
+                    )
+                    logger.info(f"Like notification sent to {to_user} from {from_user}")
+                except Exception as e:
+                    logger.error(f"Like notification error for user {to_user}: {e}")
+            return web.json_response({'success': True, 'match': False})
+    except Exception as e:
+        logger.error(f"LIKE SEND API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def main():
     await db.init_db()
     logger.info("Bot ishga tushdi...")
@@ -605,6 +658,7 @@ async def main():
     
     # Chat routes
     app.router.add_post('/api/likes/received', likes_received_api)
+    app.router.add_post('/api/likes/send', like_send_api)
     app.router.add_post('/api/likes/accept', accept_like_api)
     app.router.add_post('/api/likes/reject', reject_like_api)
     app.router.add_post('/api/matches', matches_api)
