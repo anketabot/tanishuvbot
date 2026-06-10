@@ -603,41 +603,58 @@ async def like_send_api(request):
         data = await request.json()
         from_user = data.get('from_user')
         to_user = data.get('to_user')
+        super_like = bool(data.get('super_like', False))
+        sticker = data.get('sticker', '')
         if not from_user or not to_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
         
         is_match = await db.add_like(int(from_user), int(to_user))
+        match_id = await db.get_match_id(int(from_user), int(to_user)) if is_match else None
         to_user_data = await db.get_user(int(to_user))
         from_user_data = await db.get_user(int(from_user))
-        
+
         if is_match:
             if to_user_data and from_user_data:
                 try:
+                    super_like_label = "⭐ *Super Like Match!* " if super_like else "🎉 *Match!* "
+                    super_like_note = f"\n\n{sticker} Bu super like edi." if super_like and sticker else ""
                     await bot.send_message(
                         int(to_user),
-                        f"🎉 *Match! {from_user_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                        f"{super_like_label}{from_user_data['full_name']} sizga "
+                        + ("Super Like bosdi!" if super_like else "ham sizni yoqtirdi!")
+                        + super_like_note
+                        + "\n\nEndi muloqot boshlashingiz mumkin.",
                         parse_mode="Markdown"
                     )
                     await bot.send_message(
                         int(from_user),
-                        f"🎉 *Match! {to_user_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                        f"{super_like_label}{to_user_data['full_name']} ham sizni yoqtirdi!"
+                        + (f"\n\n{sticker} Super Like yuborildi." if super_like and sticker else "")
+                        + "\n\nEndi muloqot boshlashingiz mumkin.",
                         parse_mode="Markdown"
                     )
                 except Exception as e:
                     logger.error(f"Match notify error: {e}")
-            return web.json_response({'success': True, 'match': True})
+            return web.json_response({'success': True, 'match': True, 'match_id': match_id, 'super_like': super_like})
         else:
             if to_user_data and from_user_data:
                 try:
-                    await bot.send_message(
-                        int(to_user),
-                        f"💌 *{from_user_data['full_name']}* sizni like qildi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
-                        parse_mode="Markdown"
-                    )
-                    logger.info(f"Like notification sent to {to_user} from {from_user}")
+                    if super_like:
+                        msg = (
+                            f"⭐ *{from_user_data['full_name']}* sizga Super Like bosdi!"
+                            + (f"\n\n{sticker} Bu super like edi." if sticker else "")
+                            + "\n\nWeb App'dagi Chat bo'limini tekshiring."
+                        )
+                    else:
+                        msg = (
+                            f"💌 *{from_user_data['full_name']}* sizni like qildi!"
+                            + "\n\nWeb App'dagi Chat bo'limini tekshiring."
+                        )
+                    await bot.send_message(int(to_user), msg, parse_mode="Markdown")
+                    logger.info(f"Like notification sent to {to_user} from {from_user} (super_like={super_like})")
                 except Exception as e:
                     logger.error(f"Like notification error for user {to_user}: {e}")
-            return web.json_response({'success': True, 'match': False})
+            return web.json_response({'success': True, 'match': False, 'match_id': None, 'super_like': super_like})
     except Exception as e:
         logger.error(f"LIKE SEND API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
