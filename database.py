@@ -1,494 +1,709 @@
-import asyncpg
+import asyncio
 import json
-from config import DATABASE_URL
+import logging
+import os
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import CommandStart, Command
+from aiogram.types import (
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    WebAppInfo
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiohttp import web
+
+import database as db
+from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
 
 
-async def get_db():
-    return await asyncpg.connect(DATABASE_URL)
+def main_menu_keyboard():
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))],
+        [InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile")],
+        [InlineKeyboardButton(text="📨 Do'stlarni taklif qilish", callback_data="invite_friends")],
+    ])
+    return keyboard
 
 
-async def init_db():
-    conn = await get_db()
+@dp.message(CommandStart())
+async def start_handler(message: types.Message):
+    args = message.text.split()
+    telegram_id = message.from_user.id
+
+    # Referral tekshirish
+    if len(args) > 1 and args[1].startswith("ref_"):
+        try:
+            inviter_id = int(args[1].replace("ref_", ""))
+            if inviter_id != telegram_id:
+                registered = await db.register_invite(inviter_id, telegram_id)
+                if registered:
+                    count = await db.get_invite_count(inviter_id)
+                    status_text = "✅ Endi siz bepul yozishingiz mumkin!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stni taklif qiling!"
+                    await bot.send_message(
+                        inviter_id,
+                        f"🎉 Yangi do'st siz orqali qo'shildi! Jami taklif qilganlar: {count}/2\n{status_text}"
+                    )
+        except Exception as e:
+            logger.error(f"Referral error: {e}")
+
+    user = await db.get_user(telegram_id)
+
+    await message.answer(
+        f"👋 Assalomu alaykum, {message.from_user.first_name}!\n\n"
+        "💙 *Do'stlik & Tanishuv Botiga xush kelibsiz!*\n\n"
+        "Bu yerda siz yangi do'stlar topishingiz, muloqot qilishingiz mumkin.\n\n"
+        "🌐 Web App orqali boshlang!",
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard()
+    )
+
+
+@dp.message(F.text == "👤 Mening anketam")
+async def my_profile(message: types.Message):
+    user = await db.get_user(message.from_user.id)
+    if not user:
+        await message.answer("❌ Siz hali anketa to'ldirgmansiz. Iltimos, avval anketangizni to'ldiring.")
+        return
+
+    gender_icon = "👨" if user["gender"] == "erkak" else "👩"
+    goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
+    interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
+    zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
+
+    text = (
+        f"{gender_icon} *{user['full_name']}*\n"
+        f"🎂 Yosh: {user['age']}\n"
+        f"📍 Shahar: {user['city']}\n"
+        f"⭐ Burj: {zodiac_text}\n"
+        f"❤️ Maqsad: {goals_text}\n"
+        f"🎯 Qiziqishlar: {interests_text}\n"
+        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/2"
+    )
+
+    if user.get("photo_file_id"):
+        await message.answer_photo(user["photo_file_id"], caption=text, parse_mode="Markdown")
+    else:
+        await message.answer(text, parse_mode="Markdown")
+
+
+@dp.message(F.text == "📨 Do'stlarni taklif qilish")
+async def invite_friends(message: types.Message):
+    telegram_id = message.from_user.id
+    count = await db.get_invite_count(telegram_id)
+    invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{telegram_id}"
+
+    text = (
+        f"📨 *Do'stlarni taklif qiling!*\n\n"
+        f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
+        f"👥 Taklif qilganlar: *{count}/2*\n"
+    )
+    status_msg = "✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stingizni taklif qiling!"
+    text += (
+        f"{status_msg}\n\n"
+        f"🔗 Sizning havola:\n`{invite_link}`"
+    )
+
+    await message.answer(text, parse_mode="Markdown")
+
+
+@dp.callback_query(F.data == "show_profile")
+async def show_profile_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    user = await db.get_user(callback.from_user.id)
+    if not user:
+        await callback.message.answer("❌ Siz hali anketa to'ldirgmansiz. Iltimos, avval anketangizni to'ldiring.")
+        return
+
+    gender_icon = "👨" if user["gender"] == "erkak" else "👩"
+    goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
+    interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
+    zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
+
+    text = (
+        f"{gender_icon} *{user['full_name']}*\n"
+        f"🎂 Yosh: {user['age']}\n"
+        f"📍 Shahar: {user['city']}\n"
+        f"⭐ Burj: {zodiac_text}\n"
+        f"❤️ Maqsad: {goals_text}\n"
+        f"🎯 Qiziqishlar: {interests_text}\n"
+        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/2"
+    )
+
+    if user.get("photo_file_id"):
+        await callback.message.answer_photo(user["photo_file_id"], caption=text, parse_mode="Markdown")
+    else:
+        await callback.message.answer(text, parse_mode="Markdown")
+
+
+@dp.callback_query(F.data == "invite_friends")
+async def invite_friends_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    telegram_id = callback.from_user.id
+    count = await db.get_invite_count(telegram_id)
+    invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{telegram_id}"
+
+    text = (
+        f"📨 *Do'stlarni taklif qiling!*\n\n"
+        f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
+        f"👥 Taklif qilganlar: *{count}/2*\n"
+    )
+    status_msg = "✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stingizni taklif qiling!"
+    text += (
+        f"{status_msg}\n\n"
+        f"🔗 Sizning havola:\n`{invite_link}`"
+    )
+
+    await callback.message.answer(text, parse_mode="Markdown")
+
+
+@dp.message(F.web_app_data)
+async def web_app_data_handler(message: types.Message):
+    """WebApp dan kelgan ma'lumotlarni qabul qilish"""
     try:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id BIGSERIAL PRIMARY KEY,
-                telegram_id BIGINT UNIQUE NOT NULL,
-                username TEXT,
-                full_name TEXT,
-                gender TEXT,
-                age INTEGER,
-                city TEXT,
-                interests TEXT[],
-                zodiac TEXT,
-                goals TEXT[],
-                photo_file_id TEXT,
-                photo_base64 TEXT,
-                invited_friends INTEGER DEFAULT 0,
-                is_active BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
+        data = json.loads(message.web_app_data.data)
+        action = data.get("action")
 
-        await conn.execute("""
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_base64 TEXT
-        """)
+        if action == "save_profile":
+            profile_data = data.get("profile", {})
+            profile_data["username"] = message.from_user.username
+            profile_data["telegram_id"] = message.from_user.id
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS likes (
-                id BIGSERIAL PRIMARY KEY,
-                from_user BIGINT NOT NULL,
-                to_user BIGINT NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(from_user, to_user)
-            )
-        """)
+            success = await db.save_user(message.from_user.id, profile_data)
+            if success:
+                await message.answer(
+                    "✅ *Anketangiz muvaffaqiyatli saqlandi!*\n\nEndi qidirish orqali yangi do'stlar toping. 🔍",
+                    parse_mode="Markdown",
+                    reply_markup=main_menu_keyboard()
+                )
+            else:
+                await message.answer("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.")
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS matches (
-                id BIGSERIAL PRIMARY KEY,
-                user1 BIGINT NOT NULL,
-                user2 BIGINT NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(user1, user2)
-            )
-        """)
+        elif action == "like_user":
+            to_user = int(data.get("to_user"))
+            logger.info(f"Like action from {message.from_user.id} to {to_user}")
+            is_match = await db.add_like(message.from_user.id, to_user)
+            to_user_data = await db.get_user(to_user)
+            my_data = await db.get_user(message.from_user.id)
+            logger.info(f"Like result: is_match={is_match}, to_user_data={to_user_data is not None}, my_data={my_data is not None}")
+            if is_match:
+                if to_user_data and my_data:
+                    await message.answer(
+                        f"🎉 *Match! {to_user_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                        parse_mode="Markdown"
+                    )
+                    try:
+                        await bot.send_message(
+                            to_user,
+                            f"🎉 *Match! {my_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                            parse_mode="Markdown"
+                        )
+                        logger.info(f"Match notification sent to {to_user}")
+                    except Exception as e:
+                        logger.error(f"Match notify error: {e}", exc_info=True)
+                else:
+                    await message.answer("🎉 Match bo'ldi! Endi muloqot qiling.")
+            else:
+                await message.answer("💙 Like yuborildi! Agar u ham sizni yoqtirsa, xabar beramiz.")
+                if to_user_data and my_data:
+                    try:
+                        await bot.send_message(
+                            to_user,
+                            f"💌 *{my_data['full_name']}* sizni like qildi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
+                            parse_mode="Markdown"
+                        )
+                        logger.info(f"Like notification sent to {to_user} from {message.from_user.id}")
+                    except Exception as e:
+                        logger.error(f"Like notification error for user {to_user}: {e}", exc_info=True)
+                else:
+                    logger.warning(f"Could not send like notification: to_user_data={to_user_data}, my_data={my_data}")
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS blocks (
-                id BIGSERIAL PRIMARY KEY,
-                blocker BIGINT NOT NULL,
-                blocked BIGINT NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(blocker, blocked)
-            )
-        """)
+        elif action == "block_user":
+            blocked_id = int(data.get("blocked_id"))
+            await db.block_user(message.from_user.id, blocked_id)
+            await message.answer("🚫 Foydalanuvchi bloklandi.")
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS invites (
-                id BIGSERIAL PRIMARY KEY,
-                inviter_id BIGINT NOT NULL,
-                invited_id BIGINT NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(inviter_id, invited_id)
-            )
-        """)
+        elif action == "check_write":
+            to_user = int(data.get("to_user"))
+            can = await db.can_write(message.from_user.id, to_user)
+            if can:
+                await message.answer(f"✅ Siz bu foydalanuvchiga yoza olasiz.")
+            else:
+                invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{message.from_user.id}"
+                await message.answer(
+                    f"❌ Yozish uchun match bo'lish yoki 2 ta do'st taklif qilish kerak.\n\n"
+                    f"🔗 Taklif havolasi:\n`{invite_link}`",
+                    parse_mode="Markdown"
+                )
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS chat_messages (
-                id BIGSERIAL PRIMARY KEY,
-                match_id BIGINT NOT NULL,
-                sender_id BIGINT NOT NULL,
-                message TEXT NOT NULL,
-                is_read BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-    finally:
-        await conn.close()
+        elif action == "search":
+            filters = data.get("filters", {})
+            users = await db.search_users(message.from_user.id, filters)
+            if not users:
+                await message.answer("😔 Qidiruv bo'yicha hech kim topilmadi. Filtrlarni o'zgartiring.")
+                return
 
+            for u in users[:5]:
+                gender_icon = "👨" if u["gender"] == "erkak" else "👩"
+                goals_text = ", ".join(u["goals"]) if u["goals"] else "—"
+                interests_text = ", ".join(u["interests"]) if u["interests"] else "—"
 
-async def save_user(telegram_id, data):
-    conn = await get_db()
-    try:
-        await conn.execute("""
-            INSERT INTO users (telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (telegram_id) DO UPDATE SET
-                username = EXCLUDED.username,
-                full_name = EXCLUDED.full_name,
-                gender = EXCLUDED.gender,
-                age = EXCLUDED.age,
-                city = EXCLUDED.city,
-                interests = EXCLUDED.interests,
-                zodiac = EXCLUDED.zodiac,
-                goals = EXCLUDED.goals,
-                photo_file_id = EXCLUDED.photo_file_id,
-                photo_base64 = EXCLUDED.photo_base64,
-                is_active = TRUE
-        """,
-            telegram_id,
-            data.get("username"),
-            data.get("full_name"),
-            data.get("gender"),
-            data.get("age"),
-            data.get("city"),
-            data.get("interests", []),
-            data.get("zodiac"),
-            data.get("goals", []),
-            data.get("photo_file_id"),
-            data.get("photo_base64")
-        )
-        return True
+                text = (
+                    f"{gender_icon} *{u['full_name']}*\n"
+                    f"🎂 Yosh: {u['age']}\n"
+                    f"📍 Shahar: {u['city']}\n"
+                    f"❤️ Maqsad: {goals_text}\n"
+                    f"🎯 Qiziqishlar: {interests_text}"
+                )
+
+                builder = InlineKeyboardBuilder()
+                builder.add(InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{u['telegram_id']}"))
+                builder.add(InlineKeyboardButton(text="🚫 Blok", callback_data=f"block_{u['telegram_id']}"))
+                builder.add(InlineKeyboardButton(text="✉️ Yozish", callback_data=f"write_{u['telegram_id']}"))
+
+                if u.get("photo_file_id"):
+                    await message.answer_photo(
+                        u["photo_file_id"],
+                        caption=text,
+                        parse_mode="Markdown",
+                        reply_markup=builder.as_markup()
+                    )
+                else:
+                    await message.answer(text, parse_mode="Markdown", reply_markup=builder.as_markup())
+
     except Exception as e:
-        print(f"Error saving user: {e}")
-        return False
-    finally:
-        await conn.close()
+        logger.error(f"WebApp data error: {e}")
+        await message.answer("❌ Xatolik yuz berdi.")
 
 
-async def get_user(telegram_id):
-    conn = await get_db()
+@dp.callback_query(F.data.startswith("like_"))
+async def like_callback(callback: types.CallbackQuery):
+    to_user = int(callback.data.replace("like_", ""))
+    is_match = await db.add_like(callback.from_user.id, to_user)
+    if is_match:
+        to_user_data = await db.get_user(to_user)
+        my_data = await db.get_user(callback.from_user.id)
+        await callback.message.answer(f"🎉 Match! {to_user_data['full_name']} ham sizni yoqtirdi!")
+        await bot.send_message(to_user, f"🎉 Match! {my_data['full_name']} ham sizni yoqtirdi!")
+    else:
+        await callback.answer("💙 Like yuborildi!", show_alert=False)
+
+
+@dp.callback_query(F.data.startswith("block_"))
+async def block_callback(callback: types.CallbackQuery):
+    blocked_id = int(callback.data.replace("block_", ""))
+    await db.block_user(callback.from_user.id, blocked_id)
+    await callback.answer("🚫 Bloklandi", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("write_"))
+async def write_callback(callback: types.CallbackQuery):
+    to_user = int(callback.data.replace("write_", ""))
+    can = await db.can_write(callback.from_user.id, to_user)
+    if can:
+        to_user_data = await db.get_user(to_user)
+        username = to_user_data.get("username")
+        if username:
+            await callback.answer(f"@{username} ga yozishingiz mumkin!", show_alert=True)
+        else:
+            await callback.answer("Bu foydalanuvchining username yo'q.", show_alert=True)
+    else:
+        me = await bot.get_me()
+        invite_link = f"https://t.me/{me.username}?start=ref_{callback.from_user.id}"
+        await callback.message.answer(
+            f"❌ Yozish uchun match bo'lish yoki 2 do'st taklif qilish kerak.\n\n🔗 Havolangiz:\n`{invite_link}`",
+            parse_mode="Markdown"
+        )
+
+
+# ========== HTTP API ==========
+
+def serialize_value(value):
+    if isinstance(value, (list, tuple)):
+        return [serialize_value(v) for v in value]
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return value
+
+
+def serialize_user(user):
+    clean_user = {}
+    for key, value in user.items():
+        clean_user[key] = serialize_value(value)
+    return clean_user
+
+
+@web.middleware
+async def cors_middleware(request, handler):
+    if request.method == 'OPTIONS':
+        return web.Response(
+            text='',
+            status=200,
+            headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+                'Access-Control-Max-Age': '86400',
+            }
+        )
+    
+    response = await handler(request)
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return response
+
+
+async def search_api(request):
     try:
-        row = await conn.fetchrow("SELECT * FROM users WHERE telegram_id = $1", telegram_id)
-        if row:
-            return dict(row)
-        return None
-    finally:
-        await conn.close()
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        filters = data.get('filters', {})
+        if telegram_id is None:
+            telegram_id = 0
+        users = await db.search_users(int(telegram_id), filters)
+        clean_users = [serialize_user(u) for u in users]
+        return web.json_response({'success': True, 'users': clean_users})
+    except Exception as e:
+        logger.error(f"SEARCH API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def search_users(telegram_id, filters):
-    conn = await get_db()
+async def profile_api(request):
     try:
-        blocked_ids = await conn.fetch(
-            "SELECT blocked FROM blocks WHERE blocker = $1 UNION SELECT blocker FROM blocks WHERE blocked = $1",
-            telegram_id
-        )
-        excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
-
-        query = """
-            SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64
-            FROM users
-            WHERE telegram_id != ALL($1::bigint[])
-            AND is_active = TRUE
-        """
-        params = [excluded]
-        idx = 2
-
-        if filters.get("gender"):
-            query += f" AND gender = ${idx}"
-            params.append(filters["gender"])
-            idx += 1
-
-        if filters.get("age_from"):
-            query += f" AND age >= ${idx}"
-            params.append(int(filters["age_from"]))
-            idx += 1
-
-        if filters.get("age_to"):
-            query += f" AND age <= ${idx}"
-            params.append(int(filters["age_to"]))
-            idx += 1
-
-        if filters.get("city"):
-            query += f" AND city ILIKE ${idx}"
-            params.append(f"%{filters['city']}%")
-            idx += 1
-
-        if filters.get("goals"):
-            query += f" AND goals && ${idx}::text[]"
-            params.append(filters["goals"])
-            idx += 1
-
-        query += " LIMIT 20"
-        rows = await conn.fetch(query, *params)
-
-        # can_write tekshiruvi
-        match_rows = await conn.fetch(
-            "SELECT user1, user2 FROM matches WHERE user1 = $1 OR user2 = $1",
-            telegram_id
-        )
-        match_ids = set()
-        for mr in match_rows:
-            other = mr['user1'] if mr['user2'] == telegram_id else mr['user2']
-            match_ids.add(other)
-
-        inviter_row = await conn.fetchrow(
-            "SELECT invited_friends FROM users WHERE telegram_id = $1", telegram_id
-        )
-        inviter_count = inviter_row['invited_friends'] if inviter_row else 0
-
-        result = []
-        for row in rows:
-            user = dict(row)
-            user['can_write'] = user['telegram_id'] in match_ids or inviter_count >= 2
-            result.append(user)
-        return result
-    finally:
-        await conn.close()
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if telegram_id is None:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        user = await db.get_user(int(telegram_id))
+        if user:
+            return web.json_response({'success': True, 'user': serialize_user(user)})
+        return web.json_response({'success': True, 'user': None})
+    except Exception as e:
+        logger.error(f"PROFILE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def add_like(from_user, to_user):
-    conn = await get_db()
+async def save_profile_api(request):
     try:
-        await conn.execute(
-            "INSERT INTO likes (from_user, to_user) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            from_user, to_user
-        )
-        # Check mutual like
-        mutual = await conn.fetchrow(
-            "SELECT id FROM likes WHERE from_user = $1 AND to_user = $2",
-            to_user, from_user
-        )
-        if mutual:
-            u1, u2 = min(from_user, to_user), max(from_user, to_user)
-            await conn.execute(
-                "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                u1, u2
-            )
-            return True  # Match!
-        return False
-    finally:
-        await conn.close()
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        profile = data.get('profile', {})
+        if telegram_id is None:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        if not profile:
+            return web.json_response({'success': False, 'error': 'profile required'}, status=400)
+        profile['telegram_id'] = int(telegram_id)
+        profile['username'] = profile.get('username')
+        success = await db.save_user(int(telegram_id), profile)
+        return web.json_response({'success': success})
+    except Exception as e:
+        logger.error(f"SAVE PROFILE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def get_match_id(user1, user2):
-    conn = await get_db()
+async def admin_users_api(request):
     try:
-        u1, u2 = min(user1, user2), max(user1, user2)
-        row = await conn.fetchrow(
-            "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2",
-            u1, u2
-        )
-        return row['id'] if row else None
-    finally:
-        await conn.close()
+        data = await request.json()
+        if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+        users = await db.get_all_users()
+        clean_users = [serialize_user(u) for u in users]
+        return web.json_response({'success': True, 'users': clean_users})
+    except Exception as e:
+        logger.error(f"ADMIN USERS API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def block_user(blocker, blocked):
-    conn = await get_db()
+async def admin_analytics_api(request):
     try:
-        await conn.execute(
-            "INSERT INTO blocks (blocker, blocked) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            blocker, blocked
-        )
-    finally:
-        await conn.close()
+        data = await request.json()
+        if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+        stats = await db.get_user_stats()
+        top_cities = await db.get_top_cities(10)
+        return web.json_response({'success': True, 'analytics': {
+            'total': stats.get('total', 0),
+            'male': stats.get('male', 0),
+            'female': stats.get('female', 0),
+            'avg_age': float(stats.get('avg_age')) if stats.get('avg_age') is not None else None,
+            'top_cities': top_cities
+        }})
+    except Exception as e:
+        logger.error(f"ADMIN ANALYTICS API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def register_invite(inviter_id, invited_id):
-    conn = await get_db()
+# ========== CHAT API ENDPOINTS ==========
+
+async def likes_received_api(request):
     try:
-        existing = await conn.fetchrow(
-            "SELECT id FROM invites WHERE inviter_id = $1 AND invited_id = $2",
-            inviter_id, invited_id
-        )
-        if existing:
-            return False
-
-        already_invited = await conn.fetchrow(
-            "SELECT id FROM invites WHERE invited_id = $1",
-            invited_id
-        )
-        if already_invited:
-            return False
-
-        await conn.execute(
-            "INSERT INTO invites (inviter_id, invited_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            inviter_id, invited_id
-        )
-
-        await conn.execute(
-            "INSERT INTO users (telegram_id, invited_friends, is_active) VALUES ($1, 1, TRUE) "
-            "ON CONFLICT (telegram_id) DO UPDATE SET invited_friends = users.invited_friends + 1",
-            inviter_id
-        )
-        return True
-    finally:
-        await conn.close()
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        likes = await db.get_pending_likes(int(telegram_id))
+        return web.json_response({'success': True, 'likes': [serialize_user(u) for u in likes]})
+    except Exception as e:
+        logger.error(f"LIKES RECEIVED API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def get_invite_count(telegram_id):
-    conn = await get_db()
+async def accept_like_api(request):
     try:
-        row = await conn.fetchrow(
-            "SELECT invited_friends FROM users WHERE telegram_id = $1", telegram_id
-        )
-        return row["invited_friends"] if row else 0
-    finally:
-        await conn.close()
-
-
-async def get_all_users():
-    conn = await get_db()
-    try:
-        rows = await conn.fetch(
-            "SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64, invited_friends, created_at "
-            "FROM users WHERE is_active = TRUE ORDER BY created_at DESC"
-        )
-        return [dict(row) for row in rows]
-    finally:
-        await conn.close()
-
-
-async def get_user_stats():
-    conn = await get_db()
-    try:
-        row = await conn.fetchrow(
-            "SELECT COUNT(*) AS total, "
-            "COUNT(*) FILTER (WHERE gender = 'erkak') AS male, "
-            "COUNT(*) FILTER (WHERE gender = 'ayol') AS female, "
-            "AVG(age) AS avg_age "
-            "FROM users "
-            "WHERE is_active = TRUE"
-        )
-        return dict(row) if row else {'total': 0, 'male': 0, 'female': 0, 'avg_age': None}
-    finally:
-        await conn.close()
-
-
-async def get_top_cities(limit=10):
-    conn = await get_db()
-    try:
-        rows = await conn.fetch(
-            "SELECT city, COUNT(*) AS count FROM users "
-            "WHERE city IS NOT NULL AND city <> '' AND is_active = TRUE "
-            "GROUP BY city ORDER BY count DESC LIMIT $1",
-            limit
-        )
-        return [dict(row) for row in rows]
-    finally:
-        await conn.close()
-
-
-async def can_write(from_user, to_user):
-    """Super Like / write permission: only users with 2 invited friends can use it."""
-    conn = await get_db()
-    try:
-        count = await conn.fetchrow(
-            "SELECT invited_friends FROM users WHERE telegram_id = $1", from_user
-        )
-        invited_count = count['invited_friends'] if count else 0
-        return invited_count >= 2
-    finally:
-        await conn.close()
-
-
-# ========== CHAT & MATCH FUNCTIONS ==========
-
-async def get_pending_likes(telegram_id):
-    """Get users who liked telegram_id but not matched yet"""
-    conn = await get_db()
-    try:
-        rows = await conn.fetch("""
-            SELECT u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city, 
-                   u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64, l.created_at
-            FROM likes l
-            JOIN users u ON u.telegram_id = l.from_user
-            WHERE l.to_user = $1
-            AND NOT EXISTS (
-                SELECT 1 FROM matches m 
-                WHERE (m.user1 = l.from_user AND m.user2 = l.to_user)
-                OR (m.user1 = l.to_user AND m.user2 = l.from_user)
-            )
-            ORDER BY l.created_at DESC
-        """, telegram_id)
-        return [dict(r) for r in rows]
-    finally:
-        await conn.close()
-
-
-async def accept_like(telegram_id, from_user):
-    """Accept a like from from_user, create match, return match_id"""
-    conn = await get_db()
-    try:
-        like = await conn.fetchrow(
-            "SELECT id FROM likes WHERE from_user = $1 AND to_user = $2",
-            from_user, telegram_id
-        )
-        if not like:
-            return None
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        from_user = data.get('from_user')
+        if not telegram_id or not from_user:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
         
-        u1, u2 = min(from_user, telegram_id), max(from_user, telegram_id)
-        row = await conn.fetchrow(
-            "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
-            u1, u2
-        )
-        if not row:
-            row = await conn.fetchrow(
-                "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2", u1, u2
-            )
-        return row['id'] if row else None
-    finally:
-        await conn.close()
+        match_id = await db.accept_like(int(telegram_id), int(from_user))
+        if match_id:
+            to_data = await db.get_user(int(telegram_id))
+            from_data = await db.get_user(int(from_user))
+            if to_data and from_data:
+                try:
+                    await bot.send_message(
+                        int(from_user),
+                        f"🎉 *{to_data['full_name']}* sizning like-ingizni qabul qildi!\n\n💬 Endi Web App'dagi Chat bo'limidan suhbat boshlashingiz mumkin.",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Notify liker error: {e}")
+                try:
+                    await bot.send_message(
+                        int(telegram_id),
+                        f"✅ Siz *{from_data['full_name']}* bilan muloqotni boshladingiz!",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Notify accepter error: {e}")
+            return web.json_response({'success': True, 'match_id': match_id})
+        return web.json_response({'success': False, 'error': 'Like not found'}, status=404)
+    except Exception as e:
+        logger.error(f"ACCEPT LIKE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def reject_like(telegram_id, from_user):
-    """Reject a like from from_user and remove the pending like."""
-    conn = await get_db()
+async def reject_like_api(request):
     try:
-        result = await conn.execute(
-            "DELETE FROM likes WHERE from_user = $1 AND to_user = $2",
-            from_user, telegram_id
-        )
-        return result == 'DELETE 1'
-    finally:
-        await conn.close()
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        from_user = data.get('from_user')
+        if not telegram_id or not from_user:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+
+        rejected = await db.reject_like(int(telegram_id), int(from_user))
+        if rejected:
+            to_data = await db.get_user(int(telegram_id))
+            from_data = await db.get_user(int(from_user))
+            if to_data and from_data:
+                try:
+                    await bot.send_message(
+                        int(from_user),
+                        f"❌ *{to_data['full_name']}* sizni rad qildi.\n\nKeyinroq yana sinab ko'ring.",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Notify reject error: {e}")
+            return web.json_response({'success': True})
+        return web.json_response({'success': False, 'error': 'Like topilmadi'}, status=404)
+    except Exception as e:
+        logger.error(f"REJECT LIKE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def get_matches(telegram_id):
-    """Get all matches for user with other user details"""
-    conn = await get_db()
+async def matches_api(request):
     try:
-        rows = await conn.fetch("""
-            SELECT m.id as match_id, m.created_at as matched_at,
-                   u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
-                   u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64
-            FROM matches m
-            JOIN users u ON (
-                CASE 
-                    WHEN m.user1 = $1 THEN m.user2 = u.telegram_id
-                    ELSE m.user1 = u.telegram_id
-                END
-            )
-            WHERE m.user1 = $1 OR m.user2 = $1
-            ORDER BY m.created_at DESC
-        """, telegram_id)
-        return [dict(r) for r in rows]
-    finally:
-        await conn.close()
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        matches = await db.get_matches(int(telegram_id))
+        return web.json_response({'success': True, 'matches': [serialize_user(m) for m in matches]})
+    except Exception as e:
+        logger.error(f"MATCHES API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def create_match(user1, user2):
-    conn = await get_db()
+async def chat_messages_api(request):
     try:
-        u1, u2 = min(user1, user2), max(user1, user2)
-        row = await conn.fetchrow(
-            "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
-            u1, u2
-        )
-        if not row:
-            row = await conn.fetchrow(
-                "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2", u1, u2
-            )
-        return row['id'] if row else None
-    finally:
-        await conn.close()
+        data = await request.json()
+        match_id = data.get('match_id')
+        if not match_id:
+            return web.json_response({'success': False, 'error': 'match_id required'}, status=400)
+        messages = await db.get_chat_messages(int(match_id))
+        # Mark as read (optional, could be separate call)
+        return web.json_response({'success': True, 'messages': [serialize_user(m) for m in messages]})
+    except Exception as e:
+        logger.error(f"CHAT MESSAGES API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def get_chat_messages(match_id, limit=50):
-    conn = await get_db()
+async def send_chat_api(request):
     try:
-        rows = await conn.fetch(
-            "SELECT * FROM chat_messages WHERE match_id = $1 ORDER BY created_at DESC LIMIT $2",
-            match_id, limit
-        )
-        return [dict(r) for r in rows][::-1]
-    finally:
-        await conn.close()
+        data = await request.json()
+        match_id = data.get('match_id')
+        sender_id = data.get('sender_id')
+        message = data.get('message', '').strip()
+        if not match_id or not sender_id or not message:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        logger.info(f"Chat message from {sender_id} in match {match_id}: {message[:50]}")
+        success = await db.send_chat_message(int(match_id), int(sender_id), message)
+        if success:
+            logger.info(f"Chat message saved successfully")
+        return web.json_response({'success': success})
+    except Exception as e:
+        logger.error(f"SEND CHAT API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def send_chat_message(match_id, sender_id, message):
-    conn = await get_db()
+async def can_write_api(request):
     try:
-        await conn.execute(
-            "INSERT INTO chat_messages (match_id, sender_id, message) VALUES ($1, $2, $3)",
-            match_id, sender_id, message
-        )
-        return True
-    except Exception:
-        return False
-    finally:
-        await conn.close()
+        data = await request.json()
+        from_user = data.get('from_user')
+        to_user = data.get('to_user')
+        if from_user is None or to_user is None:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        can = await db.can_write(int(from_user), int(to_user))
+        return web.json_response({'success': True, 'can_write': can})
+    except Exception as e:
+        logger.error(f"CAN WRITE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def mark_messages_read(match_id, reader_id):
-    conn = await get_db()
+async def initiate_chat_api(request):
     try:
-        await conn.execute(
-            "UPDATE chat_messages SET is_read = TRUE WHERE match_id = $1 AND sender_id != $2",
-            match_id, reader_id
-        )
-    finally:
-        await conn.close()
+        data = await request.json()
+        from_user = data.get('from_user')
+        to_user = data.get('to_user')
+        if not from_user or not to_user:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        
+        can = await db.can_write(int(from_user), int(to_user))
+        if not can:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+        
+        match_id = await db.create_match(int(from_user), int(to_user))
+        if match_id:
+            return web.json_response({'success': True, 'match_id': match_id})
+        return web.json_response({'success': False, 'error': 'Failed to create match'}, status=500)
+    except Exception as e:
+        logger.error(f"INITIATE CHAT API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def like_send_api(request):
+    try:
+        data = await request.json()
+        from_user = data.get('from_user')
+        to_user = data.get('to_user')
+        super_like = bool(data.get('super_like', False))
+        sticker = data.get('sticker', '')
+        if not from_user or not to_user:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+
+        if super_like:
+            can_use = await db.can_write(int(from_user), int(to_user))
+            if not can_use:
+                return web.json_response(
+                    {'success': False, 'error': 'Super Like limiti tugadi. 2 ta do\'st kerak.'},
+                    status=403
+                )
+
+        is_match = await db.add_like(int(from_user), int(to_user))
+        if super_like:
+            await db.increment_super_like_usage(int(from_user))
+        match_id = await db.get_match_id(int(from_user), int(to_user)) if is_match else None
+        to_user_data = await db.get_user(int(to_user))
+        from_user_data = await db.get_user(int(from_user))
+
+        if is_match:
+            if to_user_data and from_user_data:
+                try:
+                    super_like_label = "⭐ *Super Like Match!* " if super_like else "🎉 *Match!* "
+                    super_like_note = f"\n\n{sticker} Bu super like edi." if super_like and sticker else ""
+                    await bot.send_message(
+                        int(to_user),
+                        f"{super_like_label}{from_user_data['full_name']} sizga "
+                        + ("Super Like bosdi!" if super_like else "ham sizni yoqtirdi!")
+                        + super_like_note
+                        + "\n\nEndi muloqot boshlashingiz mumkin.",
+                        parse_mode="Markdown"
+                    )
+                    await bot.send_message(
+                        int(from_user),
+                        f"{super_like_label}{to_user_data['full_name']} ham sizni yoqtirdi!"
+                        + (f"\n\n{sticker} Super Like yuborildi." if super_like and sticker else "")
+                        + "\n\nEndi muloqot boshlashingiz mumkin.",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Match notify error: {e}")
+            return web.json_response({'success': True, 'match': True, 'match_id': match_id, 'super_like': super_like})
+        else:
+            if to_user_data and from_user_data:
+                try:
+                    if super_like:
+                        msg = (
+                            f"⭐ *{from_user_data['full_name']}* sizga Super Like bosdi!"
+                            + (f"\n\n{sticker} Bu super like edi." if sticker else "")
+                            + "\n\nWeb App'dagi Chat bo'limini tekshiring."
+                        )
+                    else:
+                        msg = (
+                            f"💌 *{from_user_data['full_name']}* sizni like qildi!"
+                            + "\n\nWeb App'dagi Chat bo'limini tekshiring."
+                        )
+                    await bot.send_message(int(to_user), msg, parse_mode="Markdown")
+                    logger.info(f"Like notification sent to {to_user} from {from_user} (super_like={super_like})")
+                except Exception as e:
+                    logger.error(f"Like notification error for user {to_user}: {e}")
+            return web.json_response({'success': True, 'match': False, 'match_id': None, 'super_like': super_like})
+    except Exception as e:
+        logger.error(f"LIKE SEND API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def main():
+    await db.init_db()
+    logger.info("Bot ishga tushdi...")
+    
+    app = web.Application()
+    app.middlewares.append(cors_middleware)
+    
+    app.router.add_post('/api/search', search_api)
+    app.router.add_post('/api/profile', profile_api)
+    app.router.add_post('/api/save_profile', save_profile_api)
+    app.router.add_post('/api/admin/users', admin_users_api)
+    app.router.add_post('/api/admin/analytics', admin_analytics_api)
+    
+    # Chat routes
+    app.router.add_post('/api/likes/received', likes_received_api)
+    app.router.add_post('/api/likes/send', like_send_api)
+    app.router.add_post('/api/likes/accept', accept_like_api)
+    app.router.add_post('/api/likes/reject', reject_like_api)
+    app.router.add_post('/api/matches', matches_api)
+    app.router.add_post('/api/chat/messages', chat_messages_api)
+    app.router.add_post('/api/chat/send', send_chat_api)
+    app.router.add_post('/api/can_write', can_write_api)
+    app.router.add_post('/api/initiate_chat', initiate_chat_api)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(os.environ.get('PORT', 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"✅ HTTP API server started on port {port}")
+    
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
