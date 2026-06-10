@@ -607,8 +607,18 @@ async def like_send_api(request):
         sticker = data.get('sticker', '')
         if not from_user or not to_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
-        
+
+        if super_like:
+            can_use = await db.can_write(int(from_user), int(to_user))
+            if not can_use:
+                return web.json_response(
+                    {'success': False, 'error': 'Super Like limiti tugadi. 2 ta do\'st kerak.'},
+                    status=403
+                )
+
         is_match = await db.add_like(int(from_user), int(to_user))
+        if super_like:
+            await db.increment_super_like_usage(int(from_user))
         match_id = await db.get_match_id(int(from_user), int(to_user)) if is_match else None
         to_user_data = await db.get_user(int(to_user))
         from_user_data = await db.get_user(int(from_user))
