@@ -104,12 +104,13 @@ async def invite_friends(message: types.Message):
         f"👥 Taklif qilganlar: *{count}/2*\n"
     )
     status_msg = "✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stingizni taklif qiling!"
-    text += (
-        f"{status_msg}\n\n"
-        f"🔗 Sizning havola:\n`{invite_link}`"
-    )
+    text += f"{status_msg}"
 
-    await message.answer(text, parse_mode="Markdown")
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=invite_link)]
+    ])
+
+    await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "show_profile")
@@ -154,12 +155,13 @@ async def invite_friends_callback(callback: types.CallbackQuery):
         f"👥 Taklif qilganlar: *{count}/2*\n"
     )
     status_msg = "✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stingizni taklif qiling!"
-    text += (
-        f"{status_msg}\n\n"
-        f"🔗 Sizning havola:\n`{invite_link}`"
-    )
+    text += f"{status_msg}"
 
-    await callback.message.answer(text, parse_mode="Markdown")
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=invite_link)]
+    ])
+
+    await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 @dp.message(F.web_app_data)
@@ -235,10 +237,13 @@ async def web_app_data_handler(message: types.Message):
                 await message.answer(f"✅ Siz bu foydalanuvchiga yoza olasiz.")
             else:
                 invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{message.from_user.id}"
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=invite_link)]
+                ])
                 await message.answer(
-                    f"❌ Yozish uchun match bo'lish yoki 2 ta do'st taklif qilish kerak.\n\n"
-                    f"🔗 Taklif havolasi:\n`{invite_link}`",
-                    parse_mode="Markdown"
+                    "❌ Yozish uchun match bo'lish yoki 2 ta do'st taklif qilish kerak.",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
                 )
 
         elif action == "search":
@@ -315,9 +320,13 @@ async def write_callback(callback: types.CallbackQuery):
     else:
         me = await bot.get_me()
         invite_link = f"https://t.me/{me.username}?start=ref_{callback.from_user.id}"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=invite_link)]
+        ])
         await callback.message.answer(
-            f"❌ Yozish uchun match bo'lish yoki 2 do'st taklif qilish kerak.\n\n🔗 Havolangiz:\n`{invite_link}`",
-            parse_mode="Markdown"
+            "❌ Yozish uchun match bo'lish yoki 2 do'st taklif qilish kerak.",
+            parse_mode="Markdown",
+            reply_markup=keyboard
         )
 
 
