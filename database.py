@@ -233,6 +233,19 @@ async def add_like(from_user, to_user):
         await conn.close()
 
 
+async def get_match_id(user1, user2):
+    conn = await get_db()
+    try:
+        u1, u2 = min(user1, user2), max(user1, user2)
+        row = await conn.fetchrow(
+            "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2",
+            u1, u2
+        )
+        return row['id'] if row else None
+    finally:
+        await conn.close()
+
+
 async def block_user(blocker, blocked):
     conn = await get_db()
     try:
@@ -330,25 +343,14 @@ async def get_top_cities(limit=10):
 
 
 async def can_write(from_user, to_user):
-    """Check if from_user can write to to_user"""
+    """Super Like / write permission: only users with 2 invited friends can use it."""
     conn = await get_db()
     try:
-        # Match mavjudmi?
-        u1, u2 = min(from_user, to_user), max(from_user, to_user)
-        match = await conn.fetchrow(
-            "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2", u1, u2
-        )
-        if match:
-            return True
-
-        # 2 ta do'st taklif qilganmi?
         count = await conn.fetchrow(
             "SELECT invited_friends FROM users WHERE telegram_id = $1", from_user
         )
-        if count and count["invited_friends"] >= 2:
-            return True
-
-        return False
+        invited_count = count['invited_friends'] if count else 0
+        return invited_count >= 2
     finally:
         await conn.close()
 
