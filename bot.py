@@ -107,7 +107,7 @@ async def invite_friends(message: types.Message):
     text += f"{status_msg}"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=invite_link)]
+        [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
     ])
 
     await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
@@ -158,7 +158,7 @@ async def invite_friends_callback(callback: types.CallbackQuery):
     text += f"{status_msg}"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=invite_link)]
+        [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
     ])
 
     await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
@@ -238,7 +238,7 @@ async def web_app_data_handler(message: types.Message):
             else:
                 invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{message.from_user.id}"
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=invite_link)]
+                    [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
                 ])
                 await message.answer(
                     "❌ Yozish uchun match bo'lish yoki 2 ta do'st taklif qilish kerak.",
@@ -321,7 +321,7 @@ async def write_callback(callback: types.CallbackQuery):
         me = await bot.get_me()
         invite_link = f"https://t.me/{me.username}?start=ref_{callback.from_user.id}"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=invite_link)]
+            [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
         ])
         await callback.message.answer(
             "❌ Yozish uchun match bo'lish yoki 2 do'st taklif qilish kerak.",
