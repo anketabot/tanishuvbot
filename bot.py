@@ -44,10 +44,10 @@ async def start_handler(message: types.Message):
                 registered = await db.register_invite(inviter_id, telegram_id)
                 if registered:
                     count = await db.get_invite_count(inviter_id)
-                    status_text = "✅ Endi siz bepul yozishingiz mumkin!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stni taklif qiling!"
+                    status_text = "✅ Endi siz xabar yuborish va Super Like ishlata olasiz!" if count >= 5 else f"⏳ Yana {5 - count} ta do'stni taklif qiling!"
                     await bot.send_message(
                         inviter_id,
-                        f"🎉 Yangi do'st siz orqali qo'shildi! Jami taklif qilganlar: {count}/2\n{status_text}"
+                        f"🎉 Yangi do'st siz orqali qo'shildi! Jami taklif qilganlar: {count}/5\n{status_text}"
                     )
         except Exception as e:
             logger.error(f"Referral error: {e}")
@@ -83,7 +83,7 @@ async def my_profile(message: types.Message):
         f"⭐ Burj: {zodiac_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
         f"🎯 Qiziqishlar: {interests_text}\n"
-        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/2"
+        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/5"
     )
 
     if user.get("photo_file_id"):
@@ -101,9 +101,9 @@ async def invite_friends(message: types.Message):
     text = (
         f"📨 *Do'stlarni taklif qiling!*\n\n"
         f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
-        f"👥 Taklif qilganlar: *{count}/2*\n"
+        f"👥 Taklif qilganlar: *{count}/5*\n"
     )
-    status_msg = "✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stingizni taklif qiling!"
+    status_msg = "✅ Siz xabar yuborish va Super Like ishlata olasiz!" if count >= 5 else f"⏳ Yana {5 - count} ta do'stingizni taklif qiling!"
     text += f"{status_msg}"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -133,7 +133,7 @@ async def show_profile_callback(callback: types.CallbackQuery):
         f"⭐ Burj: {zodiac_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
         f"🎯 Qiziqishlar: {interests_text}\n"
-        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/2"
+        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/5"
     )
 
     if user.get("photo_file_id"):
@@ -152,9 +152,9 @@ async def invite_friends_callback(callback: types.CallbackQuery):
     text = (
         f"📨 *Do'stlarni taklif qiling!*\n\n"
         f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
-        f"👥 Taklif qilganlar: *{count}/2*\n"
+        f"👥 Taklif qilganlar: *{count}/5*\n"
     )
-    status_msg = "✅ Siz allaqachon bepul yozish imkoniyatiga egasiz!" if count >= 2 else f"⏳ Yana {2 - count} ta do'stingizni taklif qiling!"
+    status_msg = "✅ Siz xabar yuborish va Super Like ishlata olasiz!" if count >= 5 else f"⏳ Yana {5 - count} ta do'stingizni taklif qiling!"
     text += f"{status_msg}"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -241,7 +241,7 @@ async def web_app_data_handler(message: types.Message):
                     [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
                 ])
                 await message.answer(
-                    "❌ Yozish uchun match bo'lish yoki 2 ta do'st taklif qilish kerak.",
+                    "❌ Yozish va Super Like uchun guruhga obuna bo'lish va 5 ta do'stni taklif qilish kerak.",
                     parse_mode="Markdown",
                     reply_markup=keyboard
                 )
@@ -324,7 +324,7 @@ async def write_callback(callback: types.CallbackQuery):
             [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
         ])
         await callback.message.answer(
-            "❌ Yozish uchun match bo'lish yoki 2 do'st taklif qilish kerak.",
+            "❌ Yozish va Super Like uchun guruhga obuna bo'lish va 5 ta do'stni taklif qilish kerak.",
             parse_mode="Markdown",
             reply_markup=keyboard
         )
@@ -621,7 +621,7 @@ async def like_send_api(request):
             can_use = await db.can_write(int(from_user), int(to_user))
             if not can_use:
                 return web.json_response(
-                    {'success': False, 'error': 'Super Like limiti tugadi. 2 ta do\'st kerak.'},
+                    {'success': False, 'error': 'Super Like va xabar yuborish uchun guruhga obuna bo\'lish va 5 ta do\'st taklif qilish kerak.'},
                     status=403
                 )
 
@@ -679,6 +679,32 @@ async def like_send_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+async def group_subscribe_api(request):
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        success = await db.set_group_subscribed(int(telegram_id), True)
+        return web.json_response({'success': success})
+    except Exception as e:
+        logger.error(f"GROUP SUBSCRIBE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def group_check_api(request):
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        result = await db.get_group_subscribed(int(telegram_id))
+        return web.json_response({'success': True, 'group_subscribed': result['group_subscribed'], 'friends_invited': result['friends_invited']})
+    except Exception as e:
+        logger.error(f"GROUP CHECK API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def main():
     await db.init_db()
     logger.info("Bot ishga tushdi...")
@@ -702,6 +728,8 @@ async def main():
     app.router.add_post('/api/chat/send', send_chat_api)
     app.router.add_post('/api/can_write', can_write_api)
     app.router.add_post('/api/initiate_chat', initiate_chat_api)
+    app.router.add_post('/api/group/subscribe', group_subscribe_api)
+    app.router.add_post('/api/group/check', group_check_api)
 
     runner = web.AppRunner(app)
     await runner.setup()
