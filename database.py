@@ -39,6 +39,14 @@ async def init_db():
         """)
 
         await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS group_subscribed BOOLEAN DEFAULT FALSE
+        """)
+
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS friends_invited INTEGER DEFAULT 0
+        """)
+
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS likes (
                 id BIGSERIAL PRIMARY KEY,
                 from_user BIGINT NOT NULL,
@@ -185,6 +193,11 @@ async def search_users(telegram_id, filters):
             params.append(filters["goals"])
             idx += 1
 
+        if filters.get("interests"):
+            query += f" AND interests && ${idx}::text[]"
+            params.append(filters["interests"])
+            idx += 1
+
         query += " LIMIT 20"
         rows = await conn.fetch(query, *params)
 
@@ -199,14 +212,17 @@ async def search_users(telegram_id, filters):
             match_ids.add(other)
 
         inviter_row = await conn.fetchrow(
-            "SELECT invited_friends FROM users WHERE telegram_id = $1", telegram_id
+            "SELECT invited_friends, group_subscribed, friends_invited FROM users WHERE telegram_id = $1", telegram_id
         )
         inviter_count = inviter_row['invited_friends'] if inviter_row else 0
+        group_sub = inviter_row['group_subscribed'] if inviter_row else False
+        friends_inv = inviter_row['friends_invited'] if inviter_row else 0
 
         result = []
         for row in rows:
             user = dict(row)
-            user['can_write'] = user['telegram_id'] in match_ids or inviter_count >= 2
+            # can_write: match exists OR (group_subscribed AND friends_invited >= 5)
+            user['can_write'] = user['telegram_id'] in match_ids or (group_sub and friends_inv >= 5)
             result.append(user)
         return result
     finally:
@@ -284,8 +300,8 @@ async def register_invite(inviter_id, invited_id):
         )
 
         await conn.execute(
-            "INSERT INTO users (telegram_id, invited_friends, is_active) VALUES ($1, 1, TRUE) "
-            "ON CONFLICT (telegram_id) DO UPDATE SET invited_friends = users.invited_friends + 1",
+            "INSERT INTO users (telegram_id, invited_friends, friends_invited, is_active) VALUES ($1, 1, 1, TRUE) "
+            "ON CONFLICT (telegram_id) DO UPDATE SET invited_friends = users.invited_friends + 1, friends_invited = users.friends_invited + 1",
             inviter_id
         )
         return True
@@ -347,18 +363,26 @@ async def get_top_cities(limit=10):
 
 
 async def can_write(from_user, to_user):
-    """Allow up to 5 Super Likes; after that require 2 invited friends."""
+    """Allow messaging/Super Like if: match exists OR (group_subscribed AND friends_invited >= 5)."""
     conn = await get_db()
     try:
+        # Check if match exists
+        match = await conn.fetchrow(
+            "SELECT id FROM matches WHERE (user1 = $1 AND user2 = $2) OR (user1 = $2 AND user2 = $1)",
+            from_user, to_user
+        )
+        if match:
+            return True
+
+        # Check group subscription + 5 friends invited
         row = await conn.fetchrow(
-            "SELECT invited_friends, super_likes_used FROM users WHERE telegram_id = $1",
+            "SELECT group_subscribed, friends_invited FROM users WHERE telegram_id = $1",
             from_user
         )
-        invited_count = row['invited_friends'] if row else 0
-        super_likes_used = row['super_likes_used'] if row else 0
-        if super_likes_used < 5:
-            return True
-        return invited_count >= 2
+        group_sub = row['group_subscribed'] if row else False
+        friends_inv = row['friends_invited'] if row else 0
+
+        return group_sub and friends_inv >= 5
     finally:
         await conn.close()
 
@@ -509,5 +533,33 @@ async def mark_messages_read(match_id, reader_id):
             "UPDATE chat_messages SET is_read = TRUE WHERE match_id = $1 AND sender_id != $2",
             match_id, reader_id
         )
+    finally:
+        await conn.close()
+
+
+async def set_group_subscribed(telegram_id, subscribed=True):
+    conn = await get_db()
+    try:
+        await conn.execute(
+            "UPDATE users SET group_subscribed = $1 WHERE telegram_id = $2",
+            subscribed, telegram_id
+        )
+        return True
+    except Exception:
+        return False
+    finally:
+        await conn.close()
+
+
+async def get_group_subscribed(telegram_id):
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT group_subscribed, friends_invited FROM users WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row:
+            return {'group_subscribed': row['group_subscribed'], 'friends_invited': row['friends_invited']}
+        return {'group_subscribed': False, 'friends_invited': 0}
     finally:
         await conn.close()
