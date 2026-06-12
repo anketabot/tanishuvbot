@@ -17,7 +17,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 
 import database as db
-from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD
+from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD, GROUP_CHAT_ID, GROUP_INVITE_LINK
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -176,24 +176,85 @@ async def show_search_candidate(chat, user_id, index):
     else:
         await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
 
+@dp.my_chat_member()
+async def handle_bot_join_group(update: types.ChatMemberUpdated):
+    """Bot guruhga qo'shilganda yoki guruh ma'lumotlari o'zgarganda"""
+    if update.new_chat_member.user.id == (await bot.me()).id:
+        if update.new_chat_member.status in ['member', 'administrator']:
+            logger.info(f"Bot guruhga qo'shildi: {update.chat.id} - {update.chat.title}")
+            # Guruh ID sini config ga tekshirish
+            if GROUP_CHAT_ID and update.chat.id == GROUP_CHAT_ID:
+                logger.info("Asosiy guruh topildi!")
+        elif update.new_chat_member.status == 'left':
+            logger.info(f"Bot guruhdan chiqarildi: {update.chat.id}")
+
+
+@dp.chat_member()
+async def handle_new_group_member(update: types.ChatMemberUpdated):
+    """Guruhga yangi a'zo qo'shilganda"""
+    # Faqat asosiy guruh uchun
+    if GROUP_CHAT_ID and update.chat.id != GROUP_CHAT_ID:
+        return
+
+    new_member = update.new_chat_member
+    old_member = update.old_chat_member
+
+    # Yangi qo'shilgan a'zoni tekshirish
+    if old_member.status in ['left', 'kicked'] and new_member.status in ['member', 'administrator']:
+        invited_id = new_member.user.id
+
+        # Kim tomonidan qo'shilganini aniqlash (qo'shuvchi update.from_user)
+        inviter_id = update.from_user.id if update.from_user else None
+
+        # Agar o'zi qo'shilgan bo'lsa (link orqali) inviter_id None bo'lishi mumkin
+        if inviter_id and inviter_id != invited_id:
+            # Bu odam avval bot foydalanuvchisi ekanligini tekshirish
+            user = await db.get_user(invited_id)
+            if user:
+                # Guruhga qo'shishni qayd etish
+                success, msg = await db.record_group_invite(inviter_id, invited_id)
+                if success:
+                    # Inviter ga xabar yuborish
+                    try:
+                        inviter_data = await db.get_user(inviter_id)
+                        if inviter_data:
+                            await bot.send_message(
+                                inviter_id,
+                                f"🎉 *Tabriklaymiz!*\n\n"
+                                f"*{new_member.user.first_name}* guruhga qo'shildi!\n\n"
+                                f"{msg}",
+                                parse_mode="Markdown"
+                            )
+                    except Exception as e:
+                        logger.error(f"Inviter notify error: {e}")
+
+        # Guruh a'zolari ro'yxatiga qo'shish
+        await db.record_group_join(invited_id, inviter_id)
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
     args = message.text.split()
     telegram_id = message.from_user.id
 
-    # Referral tekshirish (yangi tizim)
+    # Referral tekshirish (bot orqali referral - endi faqat guruhga qo'shish uchun)
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
             referrer_id = int(args[1].replace("ref_", ""))
             if referrer_id != telegram_id:
-                success, msg = await db.process_referral(referrer_id, telegram_id)
-                if success:
-                    await bot.send_message(referrer_id, f"🎉 Yangi foydalanuvchi siz orqali qo'shildi!\n{msg}")
+                # Endi bu faqat guruhga qo'shish uchun ishlatiladi
+                # Bot orqali referral tizimini olib tashladik
+                pass
         except Exception as e:
             logger.error(f"Referral error: {e}")
 
     user = await db.get_user(telegram_id)
+
+    # Guruhga qo'shish tugmasi
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+    builder.add(InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile"))
+    builder.add(InlineKeyboardButton(text="🔎 Qidirish", callback_data="start_search"))
+    builder.add(InlineKeyboardButton(text="👥 Guruhga qo'shilish", url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}"))
 
     await message.answer(
         f"👋 Assalomu alaykum, {message.from_user.first_name}!\n\n"
@@ -203,9 +264,12 @@ async def start_handler(message: types.Message):
         "• Like: 25 ta\n"
         "• Xabar yuborish: 10 ta\n"
         "• Super Like: 10 ta\n\n"
-        "🌐 Web App orqali boshlang!",
+        "🎁 *Limitni oshirish:*\n"
+        "Guruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\n"
+        "Guruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\n"
+        "👇 Quyidagi tugma orqali guruhga qo'shiling va do'stlaringizni taklif qiling!",
         parse_mode="Markdown",
-        reply_markup=main_menu_keyboard()
+        reply_markup=builder.as_markup()
     )
 
 
@@ -1110,19 +1174,38 @@ async def limit_status_api(request):
 
 
 async def referral_status_api(request):
-    """Foydalanuvchining referral statusini olish"""
+    """Foydalanuvchining guruh invite statusini olish"""
     try:
         data = await request.json()
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+
         status = await db.get_referral_status(int(telegram_id))
+        invite_count = await db.get_group_invite_count(int(telegram_id))
+        invitees = await db.get_group_invitees(int(telegram_id))
+
         bot_info = await bot.get_me()
-        status['referral_link'] = await db.get_referral_link(int(telegram_id), bot_info.username)
+        status['referral_link'] = GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{bot_info.username}"
+        status['group_invite_count'] = invite_count
+        status['group_invitees'] = invitees
+
         return web.json_response({'success': True, 'referral': status})
     except Exception as e:
         logger.error(f"REFERRAL STATUS API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+LIMIT_EXCEEDED_TEXT = (
+    "Sizning kunlik limitingiz tugadi.\n\n"
+    "📊 Kunlik limitlar:\n"
+    "• Like: 25 ta\n"
+    "• Xabar yuborish: 10 ta\n"
+    "• Super Like: 10 ta\n\n"
+    "🎁 Limitni oshirish:\n"
+    "Guruhga 5 ta odam qo'shing → 1 hafta limitsiz\n"
+    "Guruhga 10 ta odam qo'shing → 1 oy limitsiz\n\n"
+    "👇 Quyidagi tugma orqali guruhga qo'shiling!"
+)
 
 
 # ========== MAIN ==========
