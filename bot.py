@@ -249,12 +249,12 @@ async def start_handler(message: types.Message):
 
     user = await db.get_user(telegram_id)
 
-    # Guruhga qo'shish tugmasi
+    # Har bir tugma alohida qatorda - builder.row() ishlatiladi
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
-    builder.add(InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile"))
-    builder.add(InlineKeyboardButton(text="🔎 Qidirish", callback_data="start_search"))
-    builder.add(InlineKeyboardButton(text="👥 Guruhga qo'shilish", url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}"))
+    builder.row(InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+    builder.row(InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile"))
+    builder.row(InlineKeyboardButton(text="🔎 Qidirish", callback_data="start_search"))
+    builder.row(InlineKeyboardButton(text="👥 Guruhga qo'shilish", url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}"))
 
     await message.answer(
         f"👋 Assalomu alaykum, {message.from_user.first_name}!\n\n"
@@ -271,7 +271,6 @@ async def start_handler(message: types.Message):
         parse_mode="Markdown",
         reply_markup=builder.as_markup()
     )
-
 
 @dp.message(F.text == "👤 Mening anketam")
 async def my_profile(message: types.Message):
