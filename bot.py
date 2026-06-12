@@ -26,8 +26,44 @@ def main_menu_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))],
         [InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile")],
+        [InlineKeyboardButton(text="🔎 Qidirish", callback_data="start_search")],
     ])
     return keyboard
+
+
+def format_user_card(user):
+    gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
+    goals_text = ", ".join(user.get("goals", [])) if user.get("goals") else "ko'rsatilmagan"
+    interests_text = ", ".join(user.get("interests", [])) if user.get("interests") else "ko'rsatilmagan"
+    zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
+
+    return (
+        f"{gender_icon} *{user['full_name']}*\n"
+        f"🎂 Yosh: {user['age']}\n"
+        f"📍 Shahar: {user['city']}\n"
+        f"⭐ Burj: {zodiac_text}\n"
+        f"❤️ Maqsad: {goals_text}\n"
+        f"🎯 Qiziqishlar: {interests_text}"
+    )
+
+
+async def send_candidate_card(message, user):
+    text = format_user_card(user)
+
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{user['telegram_id']}"))
+    builder.add(InlineKeyboardButton(text="🚫 Blok", callback_data=f"block_{user['telegram_id']}"))
+    builder.add(InlineKeyboardButton(text="✉️ Yozish", callback_data=f"write_{user['telegram_id']}"))
+
+    if user.get("photo_file_id"):
+        await message.answer_photo(
+            user["photo_file_id"],
+            caption=text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await message.answer(text, parse_mode="Markdown", reply_markup=builder.as_markup())
 
 
 @dp.message(CommandStart())
@@ -98,6 +134,50 @@ async def my_profile(message: types.Message):
         await message.answer_photo(user["photo_file_id"], caption=text, parse_mode="Markdown")
     else:
         await message.answer(text, parse_mode="Markdown")
+
+
+@dp.callback_query(F.data == "start_search")
+async def start_search_callback(callback: types.CallbackQuery):
+    await callback.answer()
+
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="👨 Erkak", callback_data="search_gender:erkak"))
+    builder.add(InlineKeyboardButton(text="👩 Ayol", callback_data="search_gender:ayol"))
+    builder.add(InlineKeyboardButton(text="🔄 Barchasi", callback_data="search_gender:all"))
+    builder.add(InlineKeyboardButton(text="⬅ Orqaga", callback_data="show_main_menu"))
+
+    await callback.message.answer(
+        "Qidirish uchun kimni izlayapsiz?\n\n"
+        "Erkak, ayol yoki barchasini tanlang.",
+        reply_markup=builder.as_markup()
+    )
+
+
+@dp.callback_query(F.data.startswith("search_gender:"))
+async def search_gender_callback(callback: types.CallbackQuery):
+    await callback.answer("Qidirilmoqda...")
+
+    gender_value = callback.data.split(":", 1)[1]
+    filters = {}
+    if gender_value != "all":
+        filters["gender"] = gender_value
+
+    users = await db.search_users(callback.from_user.id, filters)
+
+    if not users:
+        await callback.message.answer("😔 Hech kim topilmadi. Keyinroq yana urinib ko'ring.")
+        return
+
+    await callback.message.answer(f"🔎 Topilgan nomzodlar: {len(users)} ta")
+
+    for user in users[:10]:
+        await send_candidate_card(callback.message, user)
+
+
+@dp.callback_query(F.data == "show_main_menu")
+async def show_main_menu_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("Asosiy menyu:", reply_markup=main_menu_keyboard())
 
 
 @dp.callback_query(F.data == "show_profile")
