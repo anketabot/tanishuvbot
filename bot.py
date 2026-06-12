@@ -26,7 +26,6 @@ def main_menu_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))],
         [InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile")],
-        [InlineKeyboardButton(text="📨 Do'stlarni taklif qilish", callback_data="invite_friends")],
     ])
     return keyboard
 
@@ -36,19 +35,14 @@ async def start_handler(message: types.Message):
     args = message.text.split()
     telegram_id = message.from_user.id
 
-    # Referral tekshirish
+    # Referral tekshirish (yangi tizim)
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
-            inviter_id = int(args[1].replace("ref_", ""))
-            if inviter_id != telegram_id:
-                registered = await db.register_invite(inviter_id, telegram_id)
-                if registered:
-                    count = await db.get_invite_count(inviter_id)
-                    status_text = "✅ Endi siz xabar yuborish va Super Like ishlata olasiz!" if count >= 5 else f"⏳ Yana {5 - count} ta do'stni taklif qiling!"
-                    await bot.send_message(
-                        inviter_id,
-                        f"🎉 Yangi do'st siz orqali qo'shildi! Jami taklif qilganlar: {count}/5\n{status_text}"
-                    )
+            referrer_id = int(args[1].replace("ref_", ""))
+            if referrer_id != telegram_id:
+                success, msg = await db.process_referral(referrer_id, telegram_id)
+                if success:
+                    await bot.send_message(referrer_id, f"🎉 Yangi foydalanuvchi siz orqali qo'shildi!\n{msg}")
         except Exception as e:
             logger.error(f"Referral error: {e}")
 
@@ -58,6 +52,10 @@ async def start_handler(message: types.Message):
         f"👋 Assalomu alaykum, {message.from_user.first_name}!\n\n"
         "💙 *Do'stlik & Tanishuv Botiga xush kelibsiz!*\n\n"
         "Bu yerda siz yangi do'stlar topishingiz, muloqot qilishingiz mumkin.\n\n"
+        "📋 *Kunlik limitlar:*\n"
+        "• Like: 25 ta\n"
+        "• Xabar yuborish: 25 ta\n"
+        "• Super Like: 10 ta\n\n"
         "🌐 Web App orqali boshlang!",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
@@ -68,7 +66,7 @@ async def start_handler(message: types.Message):
 async def my_profile(message: types.Message):
     user = await db.get_user(message.from_user.id)
     if not user:
-        await message.answer("❌ Siz hali anketa to'ldirgmansiz. Iltimos, avval anketangizni to'ldiring.")
+        await message.answer("❌ Siz hali anketa to'ldirmagansiz. Iltimos, avval anketangizni to'ldiring.")
         return
 
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
@@ -76,14 +74,24 @@ async def my_profile(message: types.Message):
     interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
     zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
 
+    # Limit status
+    limit_status = await db.get_limit_status(message.from_user.id)
+    if limit_status['unlimited']:
+        limit_text = "\n✅ *Limitsiz foydalanish*"
+    else:
+        limit_text = f"\n📊 *Kunlik limitlar:*\n"
+        limit_text += f"• Like: {limit_status['likes_used']}/25\n"
+        limit_text += f"• Xabar: {limit_status['messages_used']}/25\n"
+        limit_text += f"• Super Like: {limit_status['super_likes_used']}/10"
+
     text = (
         f"{gender_icon} *{user['full_name']}*\n"
         f"🎂 Yosh: {user['age']}\n"
         f"📍 Shahar: {user['city']}\n"
         f"⭐ Burj: {zodiac_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
-        f"🎯 Qiziqishlar: {interests_text}\n"
-        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/5"
+        f"🎯 Qiziqishlar: {interests_text}"
+        f"{limit_text}"
     )
 
     if user.get("photo_file_id"):
@@ -92,33 +100,12 @@ async def my_profile(message: types.Message):
         await message.answer(text, parse_mode="Markdown")
 
 
-@dp.message(F.text == "📨 Do'stlarni taklif qilish")
-async def invite_friends(message: types.Message):
-    telegram_id = message.from_user.id
-    count = await db.get_invite_count(telegram_id)
-    invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{telegram_id}"
-
-    text = (
-        f"📨 *Do'stlarni taklif qiling!*\n\n"
-        f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
-        f"👥 Taklif qilganlar: *{count}/5*\n"
-    )
-    status_msg = "✅ Siz xabar yuborish va Super Like ishlata olasiz!" if count >= 5 else f"⏳ Yana {5 - count} ta do'stingizni taklif qiling!"
-    text += f"{status_msg}"
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
-    ])
-
-    await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
-
-
 @dp.callback_query(F.data == "show_profile")
 async def show_profile_callback(callback: types.CallbackQuery):
     await callback.answer()
     user = await db.get_user(callback.from_user.id)
     if not user:
-        await callback.message.answer("❌ Siz hali anketa to'ldirgmansiz. Iltimos, avval anketangizni to'ldiring.")
+        await callback.message.answer("❌ Siz hali anketa to'ldirmagansiz. Iltimos, avval anketangizni to'ldiring.")
         return
 
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
@@ -126,42 +113,30 @@ async def show_profile_callback(callback: types.CallbackQuery):
     interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
     zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
 
+    # Limit status
+    limit_status = await db.get_limit_status(callback.from_user.id)
+    if limit_status['unlimited']:
+        limit_text = "\n✅ *Limitsiz foydalanish*"
+    else:
+        limit_text = f"\n📊 *Kunlik limitlar:*\n"
+        limit_text += f"• Like: {limit_status['likes_used']}/25\n"
+        limit_text += f"• Xabar: {limit_status['messages_used']}/25\n"
+        limit_text += f"• Super Like: {limit_status['super_likes_used']}/10"
+
     text = (
         f"{gender_icon} *{user['full_name']}*\n"
         f"🎂 Yosh: {user['age']}\n"
         f"📍 Shahar: {user['city']}\n"
         f"⭐ Burj: {zodiac_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
-        f"🎯 Qiziqishlar: {interests_text}\n"
-        f"👥 Taklif qilingan do'stlar: {user['invited_friends']}/5"
+        f"🎯 Qiziqishlar: {interests_text}"
+        f"{limit_text}"
     )
 
     if user.get("photo_file_id"):
         await callback.message.answer_photo(user["photo_file_id"], caption=text, parse_mode="Markdown")
     else:
         await callback.message.answer(text, parse_mode="Markdown")
-
-
-@dp.callback_query(F.data == "invite_friends")
-async def invite_friends_callback(callback: types.CallbackQuery):
-    await callback.answer()
-    telegram_id = callback.from_user.id
-    count = await db.get_invite_count(telegram_id)
-    invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{telegram_id}"
-
-    text = (
-        f"📨 *Do'stlarni taklif qiling!*\n\n"
-        f"Do'stlaringizni botga taklif qiling va bepul yozish imkoniyatiga ega bo'ling.\n\n"
-        f"👥 Taklif qilganlar: *{count}/5*\n"
-    )
-    status_msg = "✅ Siz xabar yuborish va Super Like ishlata olasiz!" if count >= 5 else f"⏳ Yana {5 - count} ta do'stingizni taklif qiling!"
-    text += f"{status_msg}"
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
-    ])
-
-    await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 @dp.message(F.web_app_data)
@@ -188,6 +163,18 @@ async def web_app_data_handler(message: types.Message):
 
         elif action == "like_user":
             to_user = int(data.get("to_user"))
+
+            # Limit tekshirish
+            can_like = await db.check_and_increment_limit(message.from_user.id, 'likes')
+            if not can_like:
+                await message.answer(
+                    "❌ Kunlik like limitingiz tugadi!\n\n"
+                    "Guruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\n"
+                    "Guruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\n"
+                    "Yoki ertaga yangi limit bilan davom etasiz."
+                )
+                return
+
             logger.info(f"Like action from {message.from_user.id} to {to_user}")
             is_match = await db.add_like(message.from_user.id, to_user)
             to_user_data = await db.get_user(to_user)
@@ -225,26 +212,88 @@ async def web_app_data_handler(message: types.Message):
                 else:
                     logger.warning(f"Could not send like notification: to_user_data={to_user_data}, my_data={my_data}")
 
+        elif action == "super_like_user":
+            to_user = int(data.get("to_user"))
+            sticker = data.get("sticker", '')
+
+            # Super Like limit tekshirish
+            can_super = await db.check_and_increment_limit(message.from_user.id, 'super_likes')
+            if not can_super:
+                await message.answer(
+                    "❌ Kunlik Super Like limitingiz tugadi!\n\n"
+                    "Guruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\n"
+                    "Guruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\n"
+                    "Yoki ertaga yangi limit bilan davom etasiz."
+                )
+                return
+
+            is_match = await db.add_like(message.from_user.id, to_user)
+            to_user_data = await db.get_user(to_user)
+            my_data = await db.get_user(message.from_user.id)
+
+            if is_match:
+                if to_user_data and my_data:
+                    try:
+                        await bot.send_message(
+                            to_user,
+                            f"⭐ *Super Like Match!* {my_data['full_name']} sizga Super Like bosdi!\n\nEndi muloqot boshlashingiz mumkin.",
+                            parse_mode="Markdown"
+                        )
+                        await message.answer(
+                            f"🎉 *Super Like Match!* {to_user_data['full_name']} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        logger.error(f"Super Like Match notify error: {e}")
+            else:
+                if to_user_data and my_data:
+                    try:
+                        await bot.send_message(
+                            to_user,
+                            f"⭐ *{my_data['full_name']}* sizga Super Like bosdi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        logger.error(f"Super Like notify error: {e}")
+                await message.answer("⭐ Super Like yuborildi!")
+
         elif action == "block_user":
             blocked_id = int(data.get("blocked_id"))
             await db.block_user(message.from_user.id, blocked_id)
             await message.answer("🚫 Foydalanuvchi bloklandi.")
 
-        elif action == "check_write":
+        elif action == "send_message":
             to_user = int(data.get("to_user"))
-            can = await db.can_write(message.from_user.id, to_user)
-            if can:
-                await message.answer(f"✅ Siz bu foydalanuvchiga yoza olasiz.")
-            else:
-                invite_link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{message.from_user.id}"
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
-                ])
+            message_text = data.get("message", '').strip()
+
+            # Message limit tekshirish
+            can_msg = await db.check_and_increment_limit(message.from_user.id, 'messages')
+            if not can_msg:
                 await message.answer(
-                    "❌ Yozish va Super Like uchun guruhga obuna bo'lish va 5 ta do'stni taklif qilish kerak.",
-                    parse_mode="Markdown",
-                    reply_markup=keyboard
+                    "❌ Kunlik xabar yuborish limitingiz tugadi!\n\n"
+                    "Guruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\n"
+                    "Guruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\n"
+                    "Yoki ertaga yangi limit bilan davom etasiz."
                 )
+                return
+
+            # Chat yuborish logikasi
+            match_id = await db.get_match_id(message.from_user.id, to_user)
+            if match_id:
+                await db.send_chat_message(match_id, message.from_user.id, message_text)
+                await message.answer("✅ Xabar yuborildi!")
+                to_user_data = await db.get_user(to_user)
+                if to_user_data:
+                    try:
+                        await bot.send_message(
+                            to_user,
+                            f"💬 *{message.from_user.first_name}* dan yangi xabar:\n{message_text[:100]}",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        logger.error(f"Message notify error: {e}")
+            else:
+                await message.answer("❌ Avval like yuborish kerak!")
 
         elif action == "search":
             filters = data.get("filters", {})
@@ -289,6 +338,13 @@ async def web_app_data_handler(message: types.Message):
 @dp.callback_query(F.data.startswith("like_"))
 async def like_callback(callback: types.CallbackQuery):
     to_user = int(callback.data.replace("like_", ""))
+
+    # Limit tekshirish
+    can_like = await db.check_and_increment_limit(callback.from_user.id, 'likes')
+    if not can_like:
+        await callback.answer("❌ Kunlik like limitingiz tugadi!", show_alert=True)
+        return
+
     is_match = await db.add_like(callback.from_user.id, to_user)
     if is_match:
         to_user_data = await db.get_user(to_user)
@@ -318,16 +374,7 @@ async def write_callback(callback: types.CallbackQuery):
         else:
             await callback.answer("Bu foydalanuvchining username yo'q.", show_alert=True)
     else:
-        me = await bot.get_me()
-        invite_link = f"https://t.me/{me.username}?start=ref_{callback.from_user.id}"
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=f"https://t.me/share/url?url={invite_link}&text=Tanishuv%20botiga%20qo%27shiling!")]
-        ])
-        await callback.message.answer(
-            "❌ Yozish va Super Like uchun guruhga obuna bo'lish va 5 ta do'stni taklif qilish kerak.",
-            parse_mode="Markdown",
-            reply_markup=keyboard
-        )
+        await callback.answer("❌ Avval like yuborish kerak!", show_alert=True)
 
 
 # ========== HTTP API ==========
@@ -360,7 +407,7 @@ async def cors_middleware(request, handler):
                 'Access-Control-Max-Age': '86400',
             }
         )
-    
+
     response = await handler(request)
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
@@ -470,7 +517,7 @@ async def accept_like_api(request):
         from_user = data.get('from_user')
         if not telegram_id or not from_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
-        
+
         match_id = await db.accept_like(int(telegram_id), int(from_user))
         if match_id:
             to_data = await db.get_user(int(telegram_id))
@@ -547,7 +594,6 @@ async def chat_messages_api(request):
         if not match_id:
             return web.json_response({'success': False, 'error': 'match_id required'}, status=400)
         messages = await db.get_chat_messages(int(match_id))
-        # Mark as read (optional, could be separate call)
         return web.json_response({'success': True, 'messages': [serialize_user(m) for m in messages]})
     except Exception as e:
         logger.error(f"CHAT MESSAGES API xatolik: {e}", exc_info=True)
@@ -562,6 +608,16 @@ async def send_chat_api(request):
         message = data.get('message', '').strip()
         if not match_id or not sender_id or not message:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+
+        # Xabar yuborish limit tekshirish
+        can_msg = await db.check_and_increment_limit(int(sender_id), 'messages')
+        if not can_msg:
+            return web.json_response({
+                'success': False,
+                'error': 'limit_exceeded',
+                'message': 'Kunlik xabar yuborish limitingiz tugadi!'
+            }, status=403)
+
         logger.info(f"Chat message from {sender_id} in match {match_id}: {message[:50]}")
         success = await db.send_chat_message(int(match_id), int(sender_id), message)
         if success:
@@ -593,11 +649,11 @@ async def initiate_chat_api(request):
         to_user = data.get('to_user')
         if not from_user or not to_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
-        
+
         can = await db.can_write(int(from_user), int(to_user))
         if not can:
             return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
-        
+
         match_id = await db.create_match(int(from_user), int(to_user))
         if match_id:
             return web.json_response({'success': True, 'match_id': match_id})
@@ -617,13 +673,15 @@ async def like_send_api(request):
         if not from_user or not to_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
 
-        if super_like:
-            can_use = await db.can_write(int(from_user), int(to_user))
-            if not can_use:
-                return web.json_response(
-                    {'success': False, 'error': 'Super Like va xabar yuborish uchun guruhga obuna bo\'lish va 5 ta do\'st taklif qilish kerak.'},
-                    status=403
-                )
+        # Limit tekshirish
+        limit_type = 'super_likes' if super_like else 'likes'
+        can_use = await db.check_and_increment_limit(int(from_user), limit_type)
+        if not can_use:
+            return web.json_response({
+                'success': False,
+                'error': 'limit_exceeded',
+                'message': f"Kunlik {limit_type} limitingiz tugadi!"
+            }, status=403)
 
         is_match = await db.add_like(int(from_user), int(to_user))
         if super_like:
@@ -679,45 +737,53 @@ async def like_send_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def group_subscribe_api(request):
+# ========== LIMIT API ENDPOINTS ==========
+
+async def limit_status_api(request):
+    """Foydalanuvchining kunlik limit statusini olish"""
     try:
         data = await request.json()
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
-        success = await db.set_group_subscribed(int(telegram_id), True)
-        return web.json_response({'success': success})
+        status = await db.get_limit_status(int(telegram_id))
+        return web.json_response({'success': True, 'limits': status})
     except Exception as e:
-        logger.error(f"GROUP SUBSCRIBE API xatolik: {e}", exc_info=True)
+        logger.error(f"LIMIT STATUS API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def group_check_api(request):
+async def referral_status_api(request):
+    """Foydalanuvchining referral statusini olish"""
     try:
         data = await request.json()
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
-        result = await db.get_group_subscribed(int(telegram_id))
-        return web.json_response({'success': True, 'group_subscribed': result['group_subscribed'], 'friends_invited': result['friends_invited']})
+        status = await db.get_referral_status(int(telegram_id))
+        bot_info = await bot.get_me()
+        status['referral_link'] = await db.get_referral_link(int(telegram_id), bot_info.username)
+        return web.json_response({'success': True, 'referral': status})
     except Exception as e:
-        logger.error(f"GROUP CHECK API xatolik: {e}", exc_info=True)
+        logger.error(f"REFERRAL STATUS API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
+
+# ========== MAIN ==========
 
 async def main():
     await db.init_db()
     logger.info("Bot ishga tushdi...")
-    
+
     app = web.Application()
     app.middlewares.append(cors_middleware)
-    
+
     app.router.add_post('/api/search', search_api)
     app.router.add_post('/api/profile', profile_api)
     app.router.add_post('/api/save_profile', save_profile_api)
     app.router.add_post('/api/admin/users', admin_users_api)
     app.router.add_post('/api/admin/analytics', admin_analytics_api)
-    
+
     # Chat routes
     app.router.add_post('/api/likes/received', likes_received_api)
     app.router.add_post('/api/likes/send', like_send_api)
@@ -728,8 +794,10 @@ async def main():
     app.router.add_post('/api/chat/send', send_chat_api)
     app.router.add_post('/api/can_write', can_write_api)
     app.router.add_post('/api/initiate_chat', initiate_chat_api)
-    app.router.add_post('/api/group/subscribe', group_subscribe_api)
-    app.router.add_post('/api/group/check', group_check_api)
+
+    # Limit routes
+    app.router.add_post('/api/limits/status', limit_status_api)
+    app.router.add_post('/api/referral/status', referral_status_api)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -738,7 +806,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     logger.info(f"✅ HTTP API server started on port {port}")
-    
+
     await dp.start_polling(bot)
 
 
