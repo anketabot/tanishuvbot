@@ -206,7 +206,7 @@ async def check_and_increment_limit(telegram_id, limit_type):
 
     # Default limitlar
     MAX_LIKES = 25
-    MAX_MESSAGES = 25
+    MAX_MESSAGES = 10
     MAX_SUPER_LIKES = 10
 
     if limit_type == 'likes':
@@ -257,7 +257,7 @@ async def get_limit_status(telegram_id):
 
     limits = await get_daily_limits(telegram_id)
     MAX_LIKES = 25
-    MAX_MESSAGES = 25
+    MAX_MESSAGES = 10
     MAX_SUPER_LIKES = 10
 
     return {
