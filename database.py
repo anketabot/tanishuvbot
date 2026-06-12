@@ -130,6 +130,27 @@ async def init_db():
             )
         """)
 
+        # Guruhga a'zo bo'lishlarini kuzatish
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_members (
+                id BIGSERIAL PRIMARY KEY,
+                telegram_id BIGINT UNIQUE NOT NULL,
+                invited_by BIGINT,
+                joined_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+        # Guruhga odam qo'shishlarini kuzatish (referral)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_invites (
+                id BIGSERIAL PRIMARY KEY,
+                inviter_id BIGINT NOT NULL,
+                invited_id BIGINT NOT NULL,
+                invited_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(inviter_id, invited_id)
+            )
+        """)
+
     finally:
         await conn.close()
 
