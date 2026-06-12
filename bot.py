@@ -3,13 +3,14 @@ import base64
 import json
 import logging
 import os
-from io import BytesIO
+from urllib.parse import urlparse
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
+    BufferedInputFile,
     InlineKeyboardMarkup, InlineKeyboardButton,
-    InputFile, WebAppInfo
+    WebAppInfo
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -48,7 +49,7 @@ def get_photo_input(user):
             photo_base64 = photo_base64.split(",", 1)[1]
 
         image_bytes = base64.b64decode(photo_base64)
-        return InputFile(BytesIO(image_bytes), filename="profile_photo.jpg")
+        return BufferedInputFile(image_bytes, filename="profile_photo.jpg")
     except Exception as exc:
         logger.warning("Photo decode error: %s", exc)
         return None
@@ -714,6 +715,17 @@ async def cors_middleware(request, handler):
     return response
 
 
+async def telegram_webhook_handler(request: web.Request):
+    try:
+        update_data = await request.json()
+        update = types.Update(**update_data)
+        await dp.feed_update(bot, update)
+        return web.Response(text="OK", status=200)
+    except Exception as exc:
+        logger.error("Webhook update error: %s", exc, exc_info=True)
+        return web.Response(text="Bad Request", status=400)
+
+
 async def search_api(request):
     try:
         data = await request.json()
@@ -1098,6 +1110,16 @@ async def main():
     app.router.add_post('/api/limits/status', limit_status_api)
     app.router.add_post('/api/referral/status', referral_status_api)
 
+    webhook_url = os.environ.get('WEBHOOK_URL')
+    if webhook_url:
+        parsed = urlparse(webhook_url)
+        webhook_path = parsed.path or '/telegram/webhook'
+        app.router.add_post(webhook_path, telegram_webhook_handler)
+        await bot.set_webhook(webhook_url, drop_pending_updates=True)
+        logger.info(f"Webhook enabled on {webhook_url}")
+    else:
+        logger.warning('WEBHOOK_URL not set; falling back to polling (may conflict if multiple instances are running).')
+
     runner = web.AppRunner(app)
     await runner.setup()
 
@@ -1106,7 +1128,10 @@ async def main():
     await site.start()
     logger.info(f"✅ HTTP API server started on port {port}")
 
-    await dp.start_polling(bot)
+    if webhook_url:
+        await asyncio.Event().wait()
+    else:
+        await dp.start_polling(bot, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
