@@ -1,12 +1,15 @@
 import asyncio
+import base64
 import json
 import logging
 import os
+from io import BytesIO
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
-    WebAppInfo
+    InputFile, WebAppInfo
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -23,6 +26,32 @@ dp = Dispatcher(storage=MemoryStorage())
 
 search_sessions = {}
 pending_message_targets = {}
+
+
+def get_photo_input(user):
+    """Telegramda jo'natish uchun rasm manbasini qaytaradi.
+
+    Agar foydalanuvchining rasmi Telegram file_id sifatida saqlangan bo'lsa,
+    uni to'g'ridan-to'g'ri yuboradi. Agar faqat photo_base64 bo'lsa, uni
+    bytes ga aylantirib InputFile sifatida yuboradi.
+    """
+    photo_file_id = user.get("photo_file_id")
+    if photo_file_id:
+        return photo_file_id
+
+    photo_base64 = user.get("photo_base64")
+    if not photo_base64:
+        return None
+
+    try:
+        if "," in photo_base64 and photo_base64.startswith("data:"):
+            photo_base64 = photo_base64.split(",", 1)[1]
+
+        image_bytes = base64.b64decode(photo_base64)
+        return InputFile(BytesIO(image_bytes), filename="profile_photo.jpg")
+    except Exception as exc:
+        logger.warning("Photo decode error: %s", exc)
+        return None
 
 
 def main_menu_keyboard():
@@ -48,6 +77,7 @@ def format_user_card(user):
 
 async def send_candidate_card(message, user):
     text = format_user_card(user)
+    photo = get_photo_input(user)
 
     builder = InlineKeyboardBuilder()
     builder.row(
@@ -58,9 +88,9 @@ async def send_candidate_card(message, user):
         InlineKeyboardButton(text="✉️ Yozish", callback_data=f"write_{user['telegram_id']}")
     )
 
-    if user.get("photo_file_id"):
+    if photo:
         await message.answer_photo(
-            user["photo_file_id"],
+            photo,
             caption=text,
             parse_mode="Markdown",
             reply_markup=builder.as_markup()
@@ -98,11 +128,11 @@ async def show_search_candidate(chat, user_id, index):
         InlineKeyboardButton(text="⬅ Asosiy menyu", callback_data="show_main_menu")
     )
 
-    photo_id = user.get('photo_file_id')
-    if photo_id:
+    photo = get_photo_input(user)
+    if photo:
         try:
             await chat.answer_photo(
-                photo=photo_id,
+                photo=photo,
                 caption=text,
                 parse_mode='Markdown',
                 reply_markup=builder.as_markup()
@@ -178,8 +208,9 @@ async def my_profile(message: types.Message):
         f"{limit_text}"
     )
 
-    if user.get("photo_file_id"):
-        await message.answer_photo(user["photo_file_id"], caption=text, parse_mode="Markdown")
+    photo = get_photo_input(user)
+    if photo:
+        await message.answer_photo(photo, caption=text, parse_mode="Markdown")
     else:
         await message.answer(text, parse_mode="Markdown")
 
@@ -356,8 +387,9 @@ async def show_profile_callback(callback: types.CallbackQuery):
         f"{limit_text}"
     )
 
-    if user.get("photo_file_id"):
-        await callback.message.answer_photo(user["photo_file_id"], caption=text, parse_mode="Markdown")
+    photo = get_photo_input(user)
+    if photo:
+        await callback.message.answer_photo(photo, caption=text, parse_mode="Markdown")
     else:
         await callback.message.answer(text, parse_mode="Markdown")
 
@@ -586,9 +618,10 @@ async def web_app_data_handler(message: types.Message):
                 builder.add(InlineKeyboardButton(text="🚫 Blok", callback_data=f"block_{u['telegram_id']}"))
                 builder.add(InlineKeyboardButton(text="✉️ Yozish", callback_data=f"write_{u['telegram_id']}"))
 
-                if u.get("photo_file_id"):
+                photo = get_photo_input(u)
+                if photo:
                     await message.answer_photo(
-                        u["photo_file_id"],
+                        photo,
                         caption=text,
                         parse_mode="Markdown",
                         reply_markup=builder.as_markup()
