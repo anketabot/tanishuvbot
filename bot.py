@@ -64,6 +64,38 @@ def main_menu_keyboard():
     return keyboard
 
 
+def get_city_region(city=''):
+    value = str(city or '').lower()
+    rules = [
+        {'region': 'Andijon viloyati', 'terms': ['andijon', 'xonobod', 'asaka', 'qorasuv', 'baliqchi', 'buloqboshi', 'izboskan', 'jalaquduq', 'marhamat', 'oltinkoʻl', 'oltinkol', 'paxtaobod', 'shahrixon', 'ulugʻnor', 'ulugnor', 'xoʻjaobod', 'xojaobod', 'qoʻrgʻontepa', 'qorgontepa']},
+        {'region': 'Buxoro viloyati', 'terms': ['buxoro', 'kogon', 'olot', 'vobkent', 'gijduvon', 'romitan', 'shofirkon', 'galaosiyo', 'gazli']},
+        {'region': 'Fargʻona viloyati', 'terms': ['fargʻona', 'fargona', 'qoʻqon', 'qoqon', 'margʻilon', 'margilon', 'quvasoy', 'quva', 'rishton', 'yaypan', 'tinchlik', 'oltiariq', 'furqat', 'bogʻdod', 'beshariq', 'dangʻara', 'soʻx', 'sox', 'toshloq', 'uchkoʻprik', 'uchkoprik']},
+        {'region': 'Jizzax viloyati', 'terms': ['jizzax', 'dashtobod', 'arnasoy', 'baxmal', 'doʻstlik', 'dostlik', 'forish', 'gallaorol', 'mirzachoʻl', 'mirzachol', 'paxtakor', 'yangiobod', 'zomin', 'zafarobod', 'zarbdor']},
+        {'region': 'Xorazm viloyati', 'terms': ['xorazm', 'urganch', 'xiva', 'pitnak', 'gurlan', 'shovot', 'bogʻot', 'yangiariq', 'tuproqqalʼa', 'hazorasp', 'yangibozor', 'xonqa']},
+        {'region': 'Namangan viloyati', 'terms': ['namangan', 'chust', 'chartaq', 'kosonsoy', 'uchqoʻrgʻon', 'uchqorgon', 'haqqulobod', 'toʻraqoʻrgʻon', 'toraqorgon', 'pop', 'mingbuloq', 'norin', 'uychi', 'yangiqoʻrgʻon', 'yangiqorgon']},
+        {'region': 'Navoiy viloyati', 'terms': ['navoiy', 'zarafshon', 'uchquduq', 'nurota', 'qiziltepa', 'goʻzgon', 'gozgon', 'karmana', 'konimex', 'navbahor', 'tomdi', 'xatirchi']},
+        {'region': 'Qashqadaryo viloyati', 'terms': ['qarshi', 'shahrisabz', 'kitob', 'koson', 'muborak', 'yakkabogʻ', 'yakkabog', 'gʻuzor', 'guzor', 'kamashi', 'chiroqchi', 'dehqonobod', 'mirishkor', 'kasbi', 'nishon']},
+        {'region': 'Samarqand viloyati', 'terms': ['samarqand', 'kattaqoʻrgʻon', 'kattaqorgon', 'urgut', 'oqtosh', 'bulungʻur', 'jomboy', 'chelak', 'nurobod', 'qoshrabot', 'narpay', 'paxtachi', 'payariq', 'pastdargʻom', 'pastdargom', 'toyloq']},
+        {'region': 'Sirdaryo viloyati', 'terms': ['guliston', 'shirin', 'yangiyer', 'baxt', 'sirdaryo', 'boyovut', 'hovos', 'mirzaobod', 'oqoltin', 'sardoba', 'sayxunobod']},
+        {'region': 'Surxondaryo viloyati', 'terms': ['termiz', 'denov', 'boysun', 'jarqoʻrgʻon', 'jargorgon', 'qumqoʻrgʻon', 'qumqorgon', 'shargʻun', 'shargun', 'sherobod', 'shoʻrchi', 'shorchi', 'angor', 'muzrabot', 'oltinsoy', 'sariosiyo', 'uzun', 'bandixon']},
+        {'region': 'Toshkent viloyati', 'terms': ['toshkent', 'nurafshon', 'angren', 'olmaliq', 'chirchiq', 'ohangaron', 'bekobod', 'yangiyoʻl', 'yangiyol', 'gazalkent', 'keles', 'piskent', 'chinoz', 'boka', 'oqqoʻrgʻon', 'oqqorgon', 'parkent', 'quyi chirchiq', 'oʻrta chirchiq', 'yuqori chirchiq', 'zangiota']},
+        {'region': 'Qoraqalpogʻiston Respublikasi', 'terms': ['nukus', 'beruniy', 'boʻston', 'mangʻit', 'moʻynoq', 'taxiatosh', 'toʻrtkoʻl', 'xalqobod', 'chimboy', 'shumanay', 'xoʻjayli', 'qoʻngʻirot', 'amudaryo', 'kegeyli', 'qonlikoʻl', 'qorauzyak', 'taxtakoʻpir', 'boʻzatov']},
+    ]
+
+    for item in rules:
+        if any(term in value for term in item['terms']):
+            return item['region']
+    return ''
+
+
+def format_location_label(city=''):
+    city_text = str(city or '').strip()
+    region = get_city_region(city_text)
+    if region and city_text and region.lower() not in city_text.lower():
+        return f"{city_text} • {region}"
+    return city_text or 'Joy ko\'rsatilmagan'
+
+
 def format_user_card(user):
     gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
     zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
@@ -71,7 +103,7 @@ def format_user_card(user):
     return (
         f"{gender_icon} *{user['full_name']}*\n"
         f"🎂 Yosh: {user['age']}\n"
-        f"📍 Shahar: {user['city']}\n"
+        f"📍 Shahar: {format_location_label(user.get('city'))}\n"
         f"⭐ Burj: {zodiac_text}"
     )
 
@@ -202,7 +234,7 @@ async def my_profile(message: types.Message):
     text = (
         f"{gender_icon} *{user['full_name']}*\n"
         f"🎂 Yosh: {user['age']}\n"
-        f"📍 Shahar: {user['city']}\n"
+        f"📍 Shahar: {format_location_label(user.get('city'))}\n"
         f"⭐ Burj: {zodiac_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
         f"🎯 Qiziqishlar: {interests_text}"
@@ -381,7 +413,7 @@ async def show_profile_callback(callback: types.CallbackQuery):
     text = (
         f"{gender_icon} *{user['full_name']}*\n"
         f"🎂 Yosh: {user['age']}\n"
-        f"📍 Shahar: {user['city']}\n"
+        f"📍 Shahar: {format_location_label(user.get('city'))}\n"
         f"⭐ Burj: {zodiac_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
         f"🎯 Qiziqishlar: {interests_text}"
