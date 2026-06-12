@@ -1014,7 +1014,11 @@ async def like_send_api(request):
             if to_user_data and from_user_data:
                 try:
                     super_like_label = "⭐ *Super Like Match!* " if super_like else "🎉 *Match!* "
-                    super_like_note = f"\n\n{sticker} Bu super like edi." if super_like and sticker else ""
+                    super_like_note = (
+                        f"\n\n{sticker} Sizga tanlangan emoji bilan Super Like yuborildi."
+                        if super_like and sticker else
+                        "\n\nSizga Super Like yuborildi."
+                    ) if super_like else ""
                     await bot.send_message(
                         int(to_user),
                         f"{super_like_label}{from_user_data['full_name']} sizga "
@@ -1039,7 +1043,7 @@ async def like_send_api(request):
                     if super_like:
                         msg = (
                             f"⭐ *{from_user_data['full_name']}* sizga Super Like bosdi!"
-                            + (f"\n\n{sticker} Bu super like edi." if sticker else "")
+                            + (f"\n\n{sticker} Sizga tanlangan emoji bilan Super Like yuborildi." if sticker else "\n\nSizga Super Like yuborildi.")
                             + "\n\nWeb App'dagi Chat bo'limini tekshiring."
                         )
                     else:
