@@ -1,5 +1,6 @@
 import asyncpg
 import json
+from datetime import datetime, date, timedelta
 from config import DATABASE_URL
 
 
@@ -10,6 +11,7 @@ async def get_db():
 async def init_db():
     conn = await get_db()
     try:
+        # Asosiy users jadvali
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id BIGSERIAL PRIMARY KEY,
@@ -46,6 +48,7 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS friends_invited INTEGER DEFAULT 0
         """)
 
+        # Likes
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS likes (
                 id BIGSERIAL PRIMARY KEY,
@@ -56,6 +59,7 @@ async def init_db():
             )
         """)
 
+        # Matches
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS matches (
                 id BIGSERIAL PRIMARY KEY,
@@ -66,6 +70,7 @@ async def init_db():
             )
         """)
 
+        # Blocks
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS blocks (
                 id BIGSERIAL PRIMARY KEY,
@@ -76,16 +81,7 @@ async def init_db():
             )
         """)
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS invites (
-                id BIGSERIAL PRIMARY KEY,
-                inviter_id BIGINT NOT NULL,
-                invited_id BIGINT NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(inviter_id, invited_id)
-            )
-        """)
-
+        # Chat messages
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id BIGSERIAL PRIMARY KEY,
@@ -96,9 +92,274 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
+
+        # ========== YANGI JADVALLAR ==========
+
+        # Kunlik limitlar
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_limits (
+                id BIGSERIAL PRIMARY KEY,
+                telegram_id BIGINT UNIQUE NOT NULL,
+                likes_used INTEGER DEFAULT 0,
+                messages_used INTEGER DEFAULT 0,
+                super_likes_used INTEGER DEFAULT 0,
+                limit_date DATE DEFAULT CURRENT_DATE
+            )
+        """)
+
+        # Referral rewards - guruhga odam qo'shish orqali bonus
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS referral_rewards (
+                id BIGSERIAL PRIMARY KEY,
+                telegram_id BIGINT UNIQUE NOT NULL,
+                referral_count INTEGER DEFAULT 0,
+                unlimited_until TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+        # Referral tracking
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS referrals (
+                id BIGSERIAL PRIMARY KEY,
+                referrer_id BIGINT NOT NULL,
+                referred_id BIGINT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(referred_id)
+            )
+        """)
+
     finally:
         await conn.close()
 
+
+# ========== DAILY LIMITS ==========
+
+async def get_daily_limits(telegram_id):
+    """Bugungi kunlik limitlarni olish. Agar yangi kundaligi bo'lsa, reset qiladi."""
+    conn = await get_db()
+    try:
+        # Avval oldingi recordni olish
+        row = await conn.fetchrow(
+            "SELECT likes_used, messages_used, super_likes_used, limit_date FROM daily_limits WHERE telegram_id = $1",
+            telegram_id
+        )
+
+        today = date.today()
+
+        if row:
+            # Yangi kunmi tekshirish
+            if row['limit_date'] < today:
+                # Reset kunlik limitlar
+                await conn.execute(
+                    """UPDATE daily_limits
+                       SET likes_used = 0, messages_used = 0, super_likes_used = 0, limit_date = $1
+                       WHERE telegram_id = $2""",
+                    today, telegram_id
+                )
+                return {'likes_used': 0, 'messages_used': 0, 'super_likes_used': 0}
+            return {
+                'likes_used': row['likes_used'],
+                'messages_used': row['messages_used'],
+                'super_likes_used': row['super_likes_used']
+            }
+        else:
+            # Yangi record yaratish
+            await conn.execute(
+                "INSERT INTO daily_limits (telegram_id, likes_used, messages_used, super_likes_used, limit_date) VALUES ($1, 0, 0, 0, $2)",
+                telegram_id, today
+            )
+            return {'likes_used': 0, 'messages_used': 0, 'super_likes_used': 0}
+    finally:
+        await conn.close()
+
+
+async def is_unlimited(telegram_id):
+    """Foydalanuvchi limitsiz davrda ekanligini tekshirish"""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT unlimited_until FROM referral_rewards WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row and row['unlimited_until']:
+            return row['unlimited_until'] > datetime.now()
+        return False
+    finally:
+        await conn.close()
+
+
+async def check_and_increment_limit(telegram_id, limit_type):
+    """
+    Limitni tekshirish va oshirish.
+    limit_type: 'likes', 'messages', 'super_likes'
+    Agar limit tugagan bo'lsa False, aks holda True qaytaradi.
+    """
+    # Avval limitsiz ekanligini tekshirish
+    unlimited = await is_unlimited(telegram_id)
+    if unlimited:
+        return True  # Limitsiz foydalanuvchi - cheklov yo'q
+
+    # Kunlik limitlarni olish
+    limits = await get_daily_limits(telegram_id)
+
+    # Default limitlar
+    MAX_LIKES = 25
+    MAX_MESSAGES = 25
+    MAX_SUPER_LIKES = 10
+
+    if limit_type == 'likes':
+        if limits['likes_used'] >= MAX_LIKES:
+            return False  # Limit tugagan
+        await _increment_limit(telegram_id, 'likes_used')
+        return True
+
+    elif limit_type == 'messages':
+        if limits['messages_used'] >= MAX_MESSAGES:
+            return False
+        await _increment_limit(telegram_id, 'messages_used')
+        return True
+
+    elif limit_type == 'super_likes':
+        if limits['super_likes_used'] >= MAX_SUPER_LIKES:
+            return False
+        await _increment_limit(telegram_id, 'super_likes_used')
+        return True
+
+    return False
+
+
+async def _increment_limit(telegram_id, column):
+    """Limit maydonini 1 ga oshirish"""
+    conn = await get_db()
+    try:
+        await conn.execute(
+            f"""UPDATE daily_limits
+                SET {column} = {column} + 1
+                WHERE telegram_id = $1""",
+            telegram_id
+        )
+    finally:
+        await conn.close()
+
+
+async def get_limit_status(telegram_id):
+    """Foydalanuvchining to'liq limit statusini olish"""
+    unlimited = await is_unlimited(telegram_id)
+    if unlimited:
+        return {
+            'unlimited': True,
+            'likes_remaining': 999,
+            'messages_remaining': 999,
+            'super_likes_remaining': 999
+        }
+
+    limits = await get_daily_limits(telegram_id)
+    MAX_LIKES = 25
+    MAX_MESSAGES = 25
+    MAX_SUPER_LIKES = 10
+
+    return {
+        'unlimited': False,
+        'likes_used': limits['likes_used'],
+        'likes_remaining': max(0, MAX_LIKES - limits['likes_used']),
+        'messages_used': limits['messages_used'],
+        'messages_remaining': max(0, MAX_MESSAGES - limits['messages_used']),
+        'super_likes_used': limits['super_likes_used'],
+        'super_likes_remaining': max(0, MAX_SUPER_LIKES - limits['super_likes_used'])
+    }
+
+
+# ========== REFERRAL REWARDS ==========
+
+async def process_referral(referrer_id, referred_id):
+    """
+    Yangi referral qayta ishlash.
+    Returns: (success, reward_text)
+    """
+    conn = await get_db()
+    try:
+        # Avval referred_id avval referral qilganini tekshirish
+        existing = await conn.fetchrow(
+            "SELECT id FROM referrals WHERE referred_id = $1", referred_id
+        )
+        if existing:
+            return False, "Bu foydalanuvchi avval referral qilgan."
+
+        # O'zini o'zi qo'shishni oldini olish
+        if referrer_id == referred_id:
+            return False, "O'zingizni qo'sha olmaysiz."
+
+        # Referralni saqlash
+        await conn.execute(
+            "INSERT INTO referrals (referrer_id, referred_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            referrer_id, referred_id
+        )
+
+        # Referral count ni oshirish
+        await conn.execute("""
+            INSERT INTO referral_rewards (telegram_id, referral_count, updated_at)
+            VALUES ($1, 1, NOW())
+            ON CONFLICT (telegram_id) DO UPDATE SET
+                referral_count = referral_rewards.referral_count + 1,
+                updated_at = NOW()
+        """, referrer_id)
+
+        # Reward berish
+        row = await conn.fetchrow(
+            "SELECT referral_count FROM referral_rewards WHERE telegram_id = $1",
+            referrer_id
+        )
+        count = row['referral_count'] if row else 0
+
+        # 5 ta = 1 hafta, 10 ta = 1 oy
+        if count == 5:
+            until = datetime.now() + timedelta(days=7)
+            await conn.execute(
+                "UPDATE referral_rewards SET unlimited_until = $1 WHERE telegram_id = $2",
+                until, referrer_id
+            )
+            return True, f"🎉 Tabriklaymiz! {count} ta odam qo'shdingiz. 1 hafta limitsiz foydalanish!"
+        elif count == 10:
+            until = datetime.now() + timedelta(days=30)
+            await conn.execute(
+                "UPDATE referral_rewards SET unlimited_until = $1 WHERE telegram_id = $2",
+                until, referrer_id
+            )
+            return True, f"🎉 Ajoyib! {count} ta odam qo'shdingiz. 1 oy limitsiz foydalanish!"
+
+        return True, f"✅ {count} ta odam qo'shildi. 5 tagacha: 1 hafta, 10 tagacha: 1 oy limitsiz."
+
+    finally:
+        await conn.close()
+
+
+async def get_referral_status(telegram_id):
+    """Referral statusini olish"""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT referral_count, unlimited_until FROM referral_rewards WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row:
+            return {
+                'referral_count': row['referral_count'],
+                'unlimited_until': row['unlimited_until'].isoformat() if row['unlimited_until'] else None,
+                'is_unlimited': row['unlimited_until'] > datetime.now() if row['unlimited_until'] else False
+            }
+        return {'referral_count': 0, 'unlimited_until': None, 'is_unlimited': False}
+    finally:
+        await conn.close()
+
+
+async def get_referral_link(telegram_id, bot_username):
+    """Referral link yaratish"""
+    return f"https://t.me/{bot_username}?start=ref_{telegram_id}"
+
+
+# ========== USER FUNCTIONS ==========
 
 async def save_user(telegram_id, data):
     conn = await get_db()
@@ -198,10 +459,16 @@ async def search_users(telegram_id, filters):
             params.append(filters["interests"])
             idx += 1
 
-        query += " LIMIT 20"
+        # Ism bo'yicha qidirish (yangi)
+        if filters.get("name"):
+            query += f" AND full_name ILIKE ${idx}"
+            params.append(f"%{filters['name']}%")
+            idx += 1
+
+        query += " LIMIT 50"
         rows = await conn.fetch(query, *params)
 
-        # can_write tekshiruvi
+        # Match va limit status
         match_rows = await conn.fetch(
             "SELECT user1, user2 FROM matches WHERE user1 = $1 OR user2 = $1",
             telegram_id
@@ -211,18 +478,10 @@ async def search_users(telegram_id, filters):
             other = mr['user1'] if mr['user2'] == telegram_id else mr['user2']
             match_ids.add(other)
 
-        inviter_row = await conn.fetchrow(
-            "SELECT invited_friends, group_subscribed, friends_invited FROM users WHERE telegram_id = $1", telegram_id
-        )
-        inviter_count = inviter_row['invited_friends'] if inviter_row else 0
-        group_sub = inviter_row['group_subscribed'] if inviter_row else False
-        friends_inv = inviter_row['friends_invited'] if inviter_row else 0
-
         result = []
         for row in rows:
             user = dict(row)
-            # can_write: match exists OR (group_subscribed AND friends_invited >= 5)
-            user['can_write'] = user['telegram_id'] in match_ids or (group_sub and friends_inv >= 5)
+            user['can_write'] = user['telegram_id'] in match_ids
             result.append(user)
         return result
     finally:
@@ -277,49 +536,6 @@ async def block_user(blocker, blocked):
         await conn.close()
 
 
-async def register_invite(inviter_id, invited_id):
-    conn = await get_db()
-    try:
-        existing = await conn.fetchrow(
-            "SELECT id FROM invites WHERE inviter_id = $1 AND invited_id = $2",
-            inviter_id, invited_id
-        )
-        if existing:
-            return False
-
-        already_invited = await conn.fetchrow(
-            "SELECT id FROM invites WHERE invited_id = $1",
-            invited_id
-        )
-        if already_invited:
-            return False
-
-        await conn.execute(
-            "INSERT INTO invites (inviter_id, invited_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            inviter_id, invited_id
-        )
-
-        await conn.execute(
-            "INSERT INTO users (telegram_id, invited_friends, friends_invited, is_active) VALUES ($1, 1, 1, TRUE) "
-            "ON CONFLICT (telegram_id) DO UPDATE SET invited_friends = users.invited_friends + 1, friends_invited = users.friends_invited + 1",
-            inviter_id
-        )
-        return True
-    finally:
-        await conn.close()
-
-
-async def get_invite_count(telegram_id):
-    conn = await get_db()
-    try:
-        row = await conn.fetchrow(
-            "SELECT invited_friends FROM users WHERE telegram_id = $1", telegram_id
-        )
-        return row["invited_friends"] if row else 0
-    finally:
-        await conn.close()
-
-
 async def get_all_users():
     conn = await get_db()
     try:
@@ -363,26 +579,14 @@ async def get_top_cities(limit=10):
 
 
 async def can_write(from_user, to_user):
-    """Allow messaging/Super Like if: match exists OR (group_subscribed AND friends_invited >= 5)."""
+    """Allow messaging only if match exists."""
     conn = await get_db()
     try:
-        # Check if match exists
         match = await conn.fetchrow(
             "SELECT id FROM matches WHERE (user1 = $1 AND user2 = $2) OR (user1 = $2 AND user2 = $1)",
             from_user, to_user
         )
-        if match:
-            return True
-
-        # Check group subscription + 5 friends invited
-        row = await conn.fetchrow(
-            "SELECT group_subscribed, friends_invited FROM users WHERE telegram_id = $1",
-            from_user
-        )
-        group_sub = row['group_subscribed'] if row else False
-        friends_inv = row['friends_invited'] if row else 0
-
-        return group_sub and friends_inv >= 5
+        return match is not None
     finally:
         await conn.close()
 
@@ -401,17 +605,16 @@ async def increment_super_like_usage(from_user):
 # ========== CHAT & MATCH FUNCTIONS ==========
 
 async def get_pending_likes(telegram_id):
-    """Get users who liked telegram_id but not matched yet"""
     conn = await get_db()
     try:
         rows = await conn.fetch("""
-            SELECT u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city, 
+            SELECT u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
                    u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64, l.created_at
             FROM likes l
             JOIN users u ON u.telegram_id = l.from_user
             WHERE l.to_user = $1
             AND NOT EXISTS (
-                SELECT 1 FROM matches m 
+                SELECT 1 FROM matches m
                 WHERE (m.user1 = l.from_user AND m.user2 = l.to_user)
                 OR (m.user1 = l.to_user AND m.user2 = l.from_user)
             )
@@ -423,7 +626,6 @@ async def get_pending_likes(telegram_id):
 
 
 async def accept_like(telegram_id, from_user):
-    """Accept a like from from_user, create match, return match_id"""
     conn = await get_db()
     try:
         like = await conn.fetchrow(
@@ -432,7 +634,7 @@ async def accept_like(telegram_id, from_user):
         )
         if not like:
             return None
-        
+
         u1, u2 = min(from_user, telegram_id), max(from_user, telegram_id)
         row = await conn.fetchrow(
             "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
@@ -448,7 +650,6 @@ async def accept_like(telegram_id, from_user):
 
 
 async def reject_like(telegram_id, from_user):
-    """Reject a like from from_user and remove the pending like."""
     conn = await get_db()
     try:
         result = await conn.execute(
@@ -461,7 +662,6 @@ async def reject_like(telegram_id, from_user):
 
 
 async def get_matches(telegram_id):
-    """Get all matches for user with other user details"""
     conn = await get_db()
     try:
         rows = await conn.fetch("""
@@ -470,7 +670,7 @@ async def get_matches(telegram_id):
                    u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64
             FROM matches m
             JOIN users u ON (
-                CASE 
+                CASE
                     WHEN m.user1 = $1 THEN m.user2 = u.telegram_id
                     ELSE m.user1 = u.telegram_id
                 END
@@ -533,6 +733,24 @@ async def mark_messages_read(match_id, reader_id):
             "UPDATE chat_messages SET is_read = TRUE WHERE match_id = $1 AND sender_id != $2",
             match_id, reader_id
         )
+    finally:
+        await conn.close()
+
+
+# ========== ESKI REFERRAL FUNCTIONS (deprecated) ==========
+
+async def register_invite(inviter_id, invited_id):
+    """Deprecated - yangi process_referral ishlating"""
+    return await process_referral(inviter_id, invited_id)
+
+
+async def get_invite_count(telegram_id):
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT referral_count FROM referral_rewards WHERE telegram_id = $1", telegram_id
+        )
+        return row["referral_count"] if row else 0
     finally:
         await conn.close()
 
