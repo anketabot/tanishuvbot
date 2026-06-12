@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+search_sessions = {}
+pending_message_targets = {}
+
 
 def main_menu_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -64,6 +67,40 @@ async def send_candidate_card(message, user):
         )
     else:
         await message.answer(text, parse_mode="Markdown", reply_markup=builder.as_markup())
+
+
+async def show_search_candidate(chat, user_id, index):
+    session = search_sessions.get(user_id, {})
+    users = session.get('users', [])
+    if not users:
+        await chat.answer('😔 Hech qanday nomzod topilmadi.')
+        return
+
+    if index >= len(users):
+        await chat.answer('✅ Barcha nomzodlar ko\'rib chiqildi. Qayta qidirish uchun menyudan yana urinib ko\'ring.')
+        search_sessions.pop(user_id, None)
+        return
+
+    user = users[index]
+    text = format_user_card(user)
+    text += f"\n\n🔎 {index + 1}/{len(users)} ta nomzoddan hozirgi"
+
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="❤️ Like", callback_data=f"search_like:{user['telegram_id']}"))
+    builder.add(InlineKeyboardButton(text="❌ O'tkazib yuborish", callback_data="search_skip"))
+    builder.add(InlineKeyboardButton(text="⭐ Super Like", callback_data=f"search_super_like:{user['telegram_id']}"))
+    builder.add(InlineKeyboardButton(text="💬 Xabar yuborish", callback_data=f"search_message:{user['telegram_id']}"))
+    builder.add(InlineKeyboardButton(text="⬅ Orqaga", callback_data="show_main_menu"))
+
+    if user.get('photo_file_id'):
+        await chat.answer_photo(
+            user['photo_file_id'],
+            caption=text,
+            parse_mode='Markdown',
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
 
 
 @dp.message(CommandStart())
@@ -163,15 +200,110 @@ async def search_gender_callback(callback: types.CallbackQuery):
         filters["gender"] = gender_value
 
     users = await db.search_users(callback.from_user.id, filters)
-
     if not users:
         await callback.message.answer("😔 Hech kim topilmadi. Keyinroq yana urinib ko'ring.")
         return
 
-    await callback.message.answer(f"🔎 Topilgan nomzodlar: {len(users)} ta")
+    search_sessions[callback.from_user.id] = {'users': users, 'index': 0}
+    await show_search_candidate(callback.message, callback.from_user.id, 0)
 
-    for user in users[:10]:
-        await send_candidate_card(callback.message, user)
+
+@dp.callback_query(F.data == 'search_skip')
+async def search_skip_callback(callback: types.CallbackQuery):
+    await callback.answer('Keyingi nomzodga o\'tkazildi')
+    session = search_sessions.get(callback.from_user.id)
+    if not session:
+        await callback.message.answer('Qidiruv sessiyasi topilmadi. Qaytadan boshlang.')
+        return
+
+    index = session.get('index', 0) + 1
+    session['index'] = index
+    search_sessions[callback.from_user.id] = session
+    await show_search_candidate(callback.message, callback.from_user.id, index)
+
+
+@dp.callback_query(F.data.startswith('search_like:'))
+async def search_like_callback(callback: types.CallbackQuery):
+    to_user = int(callback.data.split(':', 1)[1])
+
+    can_like = await db.check_and_increment_limit(callback.from_user.id, 'likes')
+    if not can_like:
+        await callback.answer('❌ Kunlik like limitingiz tugadi! 5 ta do\'st qo\'shganingizdan keyin 1 hafta, 10 ta bo\'lsa 1 oy limitsiz bo\'lasiz.', show_alert=True)
+        return
+
+    is_match = await db.add_like(callback.from_user.id, to_user)
+    to_user_data = await db.get_user(to_user)
+    my_data = await db.get_user(callback.from_user.id)
+
+    if is_match and to_user_data and my_data:
+        try:
+            await bot.send_message(to_user, f"🎉 Match! {my_data['full_name']} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.")
+            await callback.message.answer(f"🎉 Match! {to_user_data['full_name']} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.")
+        except Exception:
+            pass
+    else:
+        try:
+            await bot.send_message(to_user, f"💌 {my_data['full_name']} sizni like qildi!\n\nWeb App'dagi Chat bo'limini tekshiring.")
+        except Exception:
+            pass
+        await callback.answer('💙 Like yuborildi!', show_alert=False)
+
+    await callback.answer('Like yuborildi!', show_alert=False)
+    await _advance_search(callback)
+
+
+@dp.callback_query(F.data.startswith('search_super_like:'))
+async def search_super_like_callback(callback: types.CallbackQuery):
+    to_user = int(callback.data.split(':', 1)[1])
+
+    can_super = await db.check_and_increment_limit(callback.from_user.id, 'super_likes')
+    if not can_super:
+        await callback.answer('❌ Kunlik Super Like limitingiz tugadi! 5 ta do\'st qo\'shganingizdan keyin 1 hafta, 10 ta bo\'lsa 1 oy limitsiz bo\'lasiz.', show_alert=True)
+        return
+
+    is_match = await db.add_like(callback.from_user.id, to_user)
+    await db.increment_super_like_usage(callback.from_user.id)
+    to_user_data = await db.get_user(to_user)
+    my_data = await db.get_user(callback.from_user.id)
+
+    if is_match and to_user_data and my_data:
+        try:
+            await bot.send_message(to_user, f"⭐ Super Like Match! {my_data['full_name']} sizga Super Like bosdi!\n\nEndi muloqot boshlashingiz mumkin.")
+            await callback.message.answer(f"⭐ Super Like Match! {to_user_data['full_name']} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.")
+        except Exception:
+            pass
+    else:
+        try:
+            await bot.send_message(to_user, f"⭐ {my_data['full_name']} sizga Super Like bosdi!\n\nWeb App'dagi Chat bo'limini tekshiring.")
+        except Exception:
+            pass
+
+    await callback.answer('⭐ Super Like yuborildi!', show_alert=False)
+    await _advance_search(callback)
+
+
+@dp.callback_query(F.data.startswith('search_message:'))
+async def search_message_callback(callback: types.CallbackQuery):
+    to_user = int(callback.data.split(':', 1)[1])
+    can_write = await db.can_write(callback.from_user.id, to_user)
+    if not can_write:
+        await callback.answer('❌ Avval like yoki super like yuborish kerak.', show_alert=True)
+        return
+
+    pending_message_targets[callback.from_user.id] = to_user
+    await callback.answer('Xabar matnini yuboring. Men uni jo\'nataman.', show_alert=True)
+    await callback.message.answer('💬 Xabar matnini yozing. Bitta xabar yuboriladi.')
+
+
+async def _advance_search(callback):
+    session = search_sessions.get(callback.from_user.id)
+    if not session:
+        return
+
+    index = session.get('index', 0) + 1
+    session['index'] = index
+    search_sessions[callback.from_user.id] = session
+    await show_search_candidate(callback.message, callback.from_user.id, index)
 
 
 @dp.callback_query(F.data == "show_main_menu")
@@ -217,6 +349,49 @@ async def show_profile_callback(callback: types.CallbackQuery):
         await callback.message.answer_photo(user["photo_file_id"], caption=text, parse_mode="Markdown")
     else:
         await callback.message.answer(text, parse_mode="Markdown")
+
+
+@dp.message()
+async def handle_pending_message(message: types.Message):
+    to_user = pending_message_targets.get(message.from_user.id)
+    if not to_user:
+        return
+
+    text = message.text or ''
+    if not text.strip():
+        await message.answer('❌ Bo\'sh xabar jo\'natib bo\'lmaydi.')
+        pending_message_targets.pop(message.from_user.id, None)
+        return
+
+    can_write = await db.can_write(message.from_user.id, to_user)
+    if not can_write:
+        await message.answer('❌ Avval like yuborish kerak!')
+        pending_message_targets.pop(message.from_user.id, None)
+        return
+
+    can_msg = await db.check_and_increment_limit(message.from_user.id, 'messages')
+    if not can_msg:
+        await message.answer('❌ Kunlik xabar yuborish limitingiz tugadi! 5 ta do\'st qo\'shganingizdan keyin 1 hafta, 10 ta bo\'lsa 1 oy limitsiz bo\'lasiz.')
+        pending_message_targets.pop(message.from_user.id, None)
+        return
+
+    match_id = await db.get_match_id(message.from_user.id, to_user)
+    if not match_id:
+        await message.answer('❌ Avval like yuborish kerak!')
+        pending_message_targets.pop(message.from_user.id, None)
+        return
+
+    await db.send_chat_message(match_id, message.from_user.id, text.strip())
+    await message.answer('✅ Xabar yuborildi!')
+
+    to_user_data = await db.get_user(to_user)
+    if to_user_data:
+        try:
+            await bot.send_message(to_user, f"💬 {message.from_user.first_name} dan yangi xabar:\n{text.strip()[:100]}")
+        except Exception:
+            pass
+
+    pending_message_targets.pop(message.from_user.id, None)
 
 
 @dp.message(F.web_app_data)
