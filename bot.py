@@ -169,7 +169,7 @@ async def start_handler(message: types.Message):
         "Bu yerda siz yangi do'stlar topishingiz, muloqot qilishingiz mumkin.\n\n"
         "📋 *Kunlik limitlar:*\n"
         "• Like: 25 ta\n"
-        "• Xabar yuborish: 25 ta\n"
+        "• Xabar yuborish: 10 ta\n"
         "• Super Like: 10 ta\n\n"
         "🌐 Web App orqali boshlang!",
         parse_mode="Markdown",
@@ -196,7 +196,7 @@ async def my_profile(message: types.Message):
     else:
         limit_text = f"\n📊 *Kunlik limitlar:*\n"
         limit_text += f"• Like: {limit_status['likes_used']}/25\n"
-        limit_text += f"• Xabar: {limit_status['messages_used']}/25\n"
+        limit_text += f"• Xabar: {limit_status['messages_used']}/10\n"
         limit_text += f"• Super Like: {limit_status['super_likes_used']}/10"
 
     text = (
@@ -375,7 +375,7 @@ async def show_profile_callback(callback: types.CallbackQuery):
     else:
         limit_text = f"\n📊 *Kunlik limitlar:*\n"
         limit_text += f"• Like: {limit_status['likes_used']}/25\n"
-        limit_text += f"• Xabar: {limit_status['messages_used']}/25\n"
+        limit_text += f"• Xabar: {limit_status['messages_used']}/10\n"
         limit_text += f"• Super Like: {limit_status['super_likes_used']}/10"
 
     text = (
