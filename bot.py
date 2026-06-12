@@ -956,16 +956,20 @@ async def can_write_api(request):
 async def initiate_chat_api(request):
     try:
         data = await request.json()
-        from_user = data.get('from_user')
-        to_user = data.get('to_user')
-        if not from_user or not to_user:
-            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        try:
+            from_user = int(data.get('from_user'))
+            to_user = int(data.get('to_user'))
+        except (TypeError, ValueError):
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
 
-        can = await db.can_write(int(from_user), int(to_user))
+        if from_user <= 0 or to_user <= 0:
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+
+        can = await db.can_write(from_user, to_user)
         if not can:
             return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
 
-        match_id = await db.create_match(int(from_user), int(to_user))
+        match_id = await db.create_match(from_user, to_user)
         if match_id:
             return web.json_response({'success': True, 'match_id': match_id})
         return web.json_response({'success': False, 'error': 'Failed to create match'}, status=500)
@@ -977,16 +981,21 @@ async def initiate_chat_api(request):
 async def like_send_api(request):
     try:
         data = await request.json()
-        from_user = data.get('from_user')
-        to_user = data.get('to_user')
+        try:
+            from_user = int(data.get('from_user'))
+            to_user = int(data.get('to_user'))
+        except (TypeError, ValueError):
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+
+        if from_user <= 0 or to_user <= 0:
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+
         super_like = bool(data.get('super_like', False))
         sticker = data.get('sticker', '')
-        if not from_user or not to_user:
-            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
 
         # Limit tekshirish
         limit_type = 'super_likes' if super_like else 'likes'
-        can_use = await db.check_and_increment_limit(int(from_user), limit_type)
+        can_use = await db.check_and_increment_limit(from_user, limit_type)
         if not can_use:
             return web.json_response({
                 'success': False,
@@ -994,12 +1003,12 @@ async def like_send_api(request):
                 'message': f"Kunlik {limit_type} limitingiz tugadi!"
             }, status=403)
 
-        is_match = await db.add_like(int(from_user), int(to_user))
+        is_match = await db.add_like(from_user, to_user)
         if super_like:
-            await db.increment_super_like_usage(int(from_user))
-        match_id = await db.get_match_id(int(from_user), int(to_user)) if is_match else None
-        to_user_data = await db.get_user(int(to_user))
-        from_user_data = await db.get_user(int(from_user))
+            await db.increment_super_like_usage(from_user)
+        match_id = await db.get_match_id(from_user, to_user) if is_match else None
+        to_user_data = await db.get_user(to_user)
+        from_user_data = await db.get_user(from_user)
 
         if is_match:
             if to_user_data and from_user_data:
