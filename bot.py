@@ -36,17 +36,13 @@ def main_menu_keyboard():
 
 def format_user_card(user):
     gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
-    goals_text = ", ".join(user.get("goals", [])) if user.get("goals") else "ko'rsatilmagan"
-    interests_text = ", ".join(user.get("interests", [])) if user.get("interests") else "ko'rsatilmagan"
     zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
 
     return (
         f"{gender_icon} *{user['full_name']}*\n"
         f"🎂 Yosh: {user['age']}\n"
         f"📍 Shahar: {user['city']}\n"
-        f"⭐ Burj: {zodiac_text}\n"
-        f"❤️ Maqsad: {goals_text}\n"
-        f"🎯 Qiziqishlar: {interests_text}"
+        f"⭐ Burj: {zodiac_text}"
     )
 
 
@@ -54,9 +50,13 @@ async def send_candidate_card(message, user):
     text = format_user_card(user)
 
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{user['telegram_id']}"))
-    builder.add(InlineKeyboardButton(text="🚫 Blok", callback_data=f"block_{user['telegram_id']}"))
-    builder.add(InlineKeyboardButton(text="✉️ Yozish", callback_data=f"write_{user['telegram_id']}"))
+    builder.row(
+        InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{user['telegram_id']}"),
+        InlineKeyboardButton(text="🚫 Blok", callback_data=f"block_{user['telegram_id']}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="✉️ Yozish", callback_data=f"write_{user['telegram_id']}")
+    )
 
     if user.get("photo_file_id"):
         await message.answer_photo(
@@ -86,19 +86,30 @@ async def show_search_candidate(chat, user_id, index):
     text += f"\n\n🔎 {index + 1}/{len(users)} ta nomzoddan hozirgi"
 
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="❤️ Like", callback_data=f"search_like:{user['telegram_id']}"))
-    builder.add(InlineKeyboardButton(text="❌ O'tkazib yuborish", callback_data="search_skip"))
-    builder.add(InlineKeyboardButton(text="⭐ Super Like", callback_data=f"search_super_like:{user['telegram_id']}"))
-    builder.add(InlineKeyboardButton(text="💬 Xabar yuborish", callback_data=f"search_message:{user['telegram_id']}"))
-    builder.add(InlineKeyboardButton(text="⬅ Orqaga", callback_data="show_main_menu"))
+    builder.row(
+        InlineKeyboardButton(text="❤️ Like", callback_data=f"search_like:{user['telegram_id']}"),
+        InlineKeyboardButton(text="⭐ Super Like", callback_data=f"search_super_like:{user['telegram_id']}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="❌ O'tkazib yuborish", callback_data="search_skip"),
+        InlineKeyboardButton(text="💬 Xabar", callback_data=f"search_message:{user['telegram_id']}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅ Asosiy menyu", callback_data="show_main_menu")
+    )
 
-    if user.get('photo_file_id'):
-        await chat.answer_photo(
-            user['photo_file_id'],
-            caption=text,
-            parse_mode='Markdown',
-            reply_markup=builder.as_markup()
-        )
+    photo_id = user.get('photo_file_id')
+    if photo_id:
+        try:
+            await chat.answer_photo(
+                photo=photo_id,
+                caption=text,
+                parse_mode='Markdown',
+                reply_markup=builder.as_markup()
+            )
+        except Exception as e:
+            logger.error(f"Photo send error: {e}")
+            await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
     else:
         await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
 
