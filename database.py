@@ -515,12 +515,30 @@ async def search_users(telegram_id, filters):
         await conn.close()
 
 
+# Har bir burj kaliti uchun barcha mumkin nom variantlari
+# Bu ma'lumotlar bazasida turli formatlarda saqlangan burj nomlarini topish uchun
+ZODIAC_KEY_TO_NAMES = {
+    "qoy": ["Qo'y", "Qo'y (Aries)", "Aries", "♈"],
+    "buzoq": ["Buqa", "Buzoq", "Buqa (Taurus)", "Taurus", "♉"],
+    "egizak": ["Egizak", "Egizaklar", "Egizaklar (Gemini)", "Gemini", "♊"],
+    "qisqichbaqa": ["Qisqichbaqa", "Qisqichbaqa (Cancer)", "Cancer", "♋"],
+    "arslon": ["Arslon", "Sher", "Sher (Leo)", "Leo", "♌"],
+    "sunbula": ["Sunbula", "Qiz", "Qiz (Virgo)", "Virgo", "♍"],
+    "tarozi": ["Tarozi", "Tarozi (Libra)", "Libra", "♎"],
+    "chayon": ["Chayon", "Chayonlar", "Chayonlar (Scorpio)", "Scorpio", "♏"],
+    "oqotar": ["O'qotar", "Yoy", "Yoy (Sagittarius)", "Sagittarius", "♐"],
+    "tog_echkisi": ["Tog' echkisi", "Tog' echkisi (Capricorn)", "Capricorn", "♑"],
+    "qovga": ["Qovg'a", "Qovunchi", "Qovunchi (Aquarius)", "Aquarius", "♒"],
+    "baliq": ["Baliq", "Baliq (Pisces)", "Pisces", "♓"],
+}
+
+
 async def search_users_by_zodiac(telegram_id, filters):
     """
     Burj mosligiga qarab foydalanuvchilarni qidirish.
     filters: {
         'zodiac_names': [...],  # Mos burjlar nomlari ro'yxati
-        'zodiac_keys': [...],   # Mos burjlar kalitlari (faqat log uchun)
+        'zodiac_keys': [...],   # Mos burjlar kalitlari (barcha nom variantlarini yig'ish uchun)
         'gender': 'erkak'|'ayol'  # ixtiyoriy
     }
     """
@@ -532,7 +550,29 @@ async def search_users_by_zodiac(telegram_id, filters):
         )
         excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
 
+        zodiac_keys = filters.get("zodiac_keys", [])
         zodiac_names = filters.get("zodiac_names", [])
+
+        # Barcha mumkin nom variantlarini yig'amiz
+        all_names = set(zodiac_names)
+
+        # Agar zodiac_keys berilgan bo'lsa, kalitlardan barcha nomlarni yig'amiz
+        if zodiac_keys:
+            for key in zodiac_keys:
+                names = ZODIAC_KEY_TO_NAMES.get(key, [])
+                for name in names:
+                    all_names.add(name)
+
+        # Agar zodiac_names berilgan bo'lsa, lekin zodiac_keys yo'q bo'lsa,
+        # zodiac_names dan kalitlarni topib, barcha variantlarni yig'amiz
+        if zodiac_names and not zodiac_keys:
+            for name in zodiac_names:
+                for key, names in ZODIAC_KEY_TO_NAMES.items():
+                    if name in names or any(name.lower() in n.lower() or n.lower() in name.lower() for n in names):
+                        all_names.update(names)
+
+        zodiac_names = list(all_names)
+
         if not zodiac_names:
             return []
 
@@ -875,5 +915,65 @@ async def get_group_subscribed(telegram_id):
         if row:
             return {'group_subscribed': row['group_subscribed'], 'friends_invited': row['friends_invited']}
         return {'group_subscribed': False, 'friends_invited': 0}
+    finally:
+        await conn.close()
+
+
+async def get_group_invite_count(telegram_id):
+    """Guruhga taklif qilinganlar sonini olish"""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT COUNT(*) as count FROM group_invites WHERE inviter_id = $1",
+            telegram_id
+        )
+        return row['count'] if row else 0
+    finally:
+        await conn.close()
+
+
+async def get_group_invitees(telegram_id):
+    """Guruhga taklif qilinganlar ro'yxatini olish"""
+    conn = await get_db()
+    try:
+        rows = await conn.fetch("""
+            SELECT u.telegram_id, u.full_name, u.username
+            FROM group_invites gi
+            JOIN users u ON u.telegram_id = gi.invited_id
+            WHERE gi.inviter_id = $1
+            ORDER BY gi.invited_at DESC
+        """, telegram_id)
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+async def record_group_invite(inviter_id, invited_id):
+    """Guruhga odam qo'shishni qayd etish"""
+    conn = await get_db()
+    try:
+        await conn.execute("""
+            INSERT INTO group_invites (inviter_id, invited_id)
+            VALUES ($1, $2)
+            ON CONFLICT DO NOTHING
+        """, inviter_id, invited_id)
+        return True, "Guruhga odam qo'shildi."
+    except Exception as e:
+        return False, str(e)
+    finally:
+        await conn.close()
+
+
+async def record_group_join(telegram_id, invited_by=None):
+    """Guruhga a'zo bo'lishni qayd etish"""
+    conn = await get_db()
+    try:
+        await conn.execute("""
+            INSERT INTO group_members (telegram_id, invited_by)
+            VALUES ($1, $2)
+            ON CONFLICT (telegram_id) DO NOTHING
+        """, telegram_id, invited_by)
+    except Exception:
+        pass
     finally:
         await conn.close()
