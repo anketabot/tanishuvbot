@@ -159,16 +159,17 @@ def get_photo_input(user):
         return None
 
 
-def main_menu_keyboard():
+async def main_menu_keyboard():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))],
         [InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile")],
         [InlineKeyboardButton(text="🔎 Qidirish", callback_data="start_search")],
+        [InlineKeyboardButton(text="👥 Guruhga qo'shilish", url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}")]
     ])
     return keyboard
 
 
-def get_city_region(city=''):
+async def get_city_region(city=''):
     value = str(city or '').lower()
     rules = [
         {'region': 'Andijon viloyati', 'terms': ['andijon', 'xonobod', 'asaka', 'qorasuv', 'baliqchi', 'buloqboshi', 'izboskan', 'jalaquduq', 'marhamat', 'oltinkoʻl', 'oltinkol', 'paxtaobod', 'shahrixon', 'ulugʻnor', 'ulugnor', 'xoʻjaobod', 'xojaobod', 'qoʻrgʻontepa', 'qorgontepa']},
