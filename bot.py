@@ -877,7 +877,31 @@ async def web_app_data_handler(message: types.Message):
 
         elif action == "search":
             filters = data.get("filters", {})
-            users = await db.search_users(message.from_user.id, filters)
+
+            # Burjga mos qidirish - zodiac_compat_list ni qayta ishlash
+            zodiac_compat_list = filters.pop('zodiac_compat_list', None)
+            if zodiac_compat_list:
+                mos_keys = []
+                mos_names = []
+                for name in zodiac_compat_list:
+                    key = get_zodiac_key(name)
+                    if key:
+                        mos_keys.append(key)
+                        mos_names.append(name)
+
+                # BARCHA mumkin burj nom variantlarini qo'shamiz
+                for key in mos_keys:
+                    for name, name_key in ZODIAC_NAME_TO_KEY.items():
+                        if name_key == key and name not in mos_names:
+                            mos_names.append(name)
+
+                zodiac_filters = dict(filters)
+                zodiac_filters['zodiac_keys'] = mos_keys
+                zodiac_filters['zodiac_names'] = mos_names
+                users = await db.search_users_by_zodiac(message.from_user.id, zodiac_filters)
+            else:
+                users = await db.search_users(message.from_user.id, filters)
+
             if not users:
                 await message.answer("😔 Qidiruv bo'yicha hech kim topilmadi. Filtrlarni o'zgartiring.")
                 return
@@ -1028,9 +1052,16 @@ async def search_api(request):
                     mos_keys.append(key)
                     mos_names.append(name)
 
+            # BARCHA mumkin burj nom variantlarini qo'shamiz
+            # Bu ma'lumotlar bazasida turli formatlarda saqlangan burjlarni topish uchun
+            for key in mos_keys:
+                for name, name_key in ZODIAC_NAME_TO_KEY.items():
+                    if name_key == key and name not in mos_names:
+                        mos_names.append(name)
+
             zodiac_filters = dict(filters)
             zodiac_filters['zodiac_keys'] = mos_keys
-            zodiac_filters['zodiac_names'] = zodiac_compat_list  # original names for ILIKE
+            zodiac_filters['zodiac_names'] = mos_names  # barcha nom variantlari for ILIKE
             users = await db.search_users_by_zodiac(int(telegram_id), zodiac_filters)
         else:
             users = await db.search_users(int(telegram_id), filters)
