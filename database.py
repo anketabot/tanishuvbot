@@ -486,10 +486,85 @@ async def search_users(telegram_id, filters):
             params.append(f"%{filters['name']}%")
             idx += 1
 
+        # Burj bo'yicha qidirish (to'g'ridan-to'g'ri)
+        if filters.get("zodiac"):
+            query += f" AND zodiac ILIKE ${idx}"
+            params.append(f"%{filters['zodiac']}%")
+            idx += 1
+
         query += " LIMIT 50"
         rows = await conn.fetch(query, *params)
 
         # Match va limit status
+        match_rows = await conn.fetch(
+            "SELECT user1, user2 FROM matches WHERE user1 = $1 OR user2 = $1",
+            telegram_id
+        )
+        match_ids = set()
+        for mr in match_rows:
+            other = mr['user1'] if mr['user2'] == telegram_id else mr['user2']
+            match_ids.add(other)
+
+        result = []
+        for row in rows:
+            user = dict(row)
+            user['can_write'] = user['telegram_id'] in match_ids
+            result.append(user)
+        return result
+    finally:
+        await conn.close()
+
+
+async def search_users_by_zodiac(telegram_id, filters):
+    """
+    Burj mosligiga qarab foydalanuvchilarni qidirish.
+    filters: {
+        'zodiac_names': [...],  # Mos burjlar nomlari ro'yxati
+        'zodiac_keys': [...],   # Mos burjlar kalitlari (faqat log uchun)
+        'gender': 'erkak'|'ayol'  # ixtiyoriy
+    }
+    """
+    conn = await get_db()
+    try:
+        blocked_ids = await conn.fetch(
+            "SELECT blocked FROM blocks WHERE blocker = $1 UNION SELECT blocker FROM blocks WHERE blocked = $1",
+            telegram_id
+        )
+        excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
+
+        zodiac_names = filters.get("zodiac_names", [])
+        if not zodiac_names:
+            return []
+
+        query = """
+            SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64
+            FROM users
+            WHERE telegram_id != ALL($1::bigint[])
+            AND is_active = TRUE
+            AND zodiac IS NOT NULL
+        """
+        params = [excluded]
+        idx = 2
+
+        # Mos burjlardan biri bilan zodiac mos kelishini tekshirish
+        # Har bir zodiac_name uchun ILIKE shartlari yozamiz
+        like_conditions = []
+        for name in zodiac_names:
+            like_conditions.append(f"zodiac ILIKE ${idx}")
+            params.append(f"%{name}%")
+            idx += 1
+
+        if like_conditions:
+            query += " AND (" + " OR ".join(like_conditions) + ")"
+
+        if filters.get("gender"):
+            query += f" AND gender = ${idx}"
+            params.append(filters["gender"])
+            idx += 1
+
+        query += " LIMIT 50"
+        rows = await conn.fetch(query, *params)
+
         match_rows = await conn.fetch(
             "SELECT user1, user2 FROM matches WHERE user1 = $1 OR user2 = $1",
             telegram_id
