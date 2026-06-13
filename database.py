@@ -518,19 +518,43 @@ async def search_users(telegram_id, filters):
 # Har bir burj kaliti uchun barcha mumkin nom variantlari
 # Bu ma'lumotlar bazasida turli formatlarda saqlangan burj nomlarini topish uchun
 ZODIAC_KEY_TO_NAMES = {
-    "qoy": ["Qo'y", "Qo'y (Aries)", "Aries", "♈"],
-    "buzoq": ["Buqa", "Buzoq", "Buqa (Taurus)", "Taurus", "♉"],
-    "egizak": ["Egizak", "Egizaklar", "Egizaklar (Gemini)", "Gemini", "♊"],
-    "qisqichbaqa": ["Qisqichbaqa", "Qisqichbaqa (Cancer)", "Cancer", "♋"],
-    "arslon": ["Arslon", "Sher", "Sher (Leo)", "Leo", "♌"],
-    "sunbula": ["Sunbula", "Qiz", "Qiz (Virgo)", "Virgo", "♍"],
-    "tarozi": ["Tarozi", "Tarozi (Libra)", "Libra", "♎"],
-    "chayon": ["Chayon", "Chayonlar", "Chayonlar (Scorpio)", "Scorpio", "♏"],
-    "oqotar": ["O'qotar", "Yoy", "Yoy (Sagittarius)", "Sagittarius", "♐"],
-    "tog_echkisi": ["Tog' echkisi", "Tog' echkisi (Capricorn)", "Capricorn", "♑"],
-    "qovga": ["Qovg'a", "Qovunchi", "Qovunchi (Aquarius)", "Aquarius", "♒"],
-    "baliq": ["Baliq", "Baliq (Pisces)", "Pisces", "♓"],
+    "qoy": ["Qo'y", "Qo'y (Aries)", "Aries", "♈", "qoy", "qo'y", "qo`y"],
+    "buzoq": ["Buqa", "Buzoq", "Buqa (Taurus)", "Taurus", "♉", "buzoq", "buqa"],
+    "egizak": ["Egizak", "Egizaklar", "Egizaklar (Gemini)", "Gemini", "♊", "egizak", "egizaklar"],
+    "qisqichbaqa": ["Qisqichbaqa", "Qisqichbaqa (Cancer)", "Cancer", "♋", "qisqichbaqa"],
+    "arslon": ["Arslon", "Sher", "Sher (Leo)", "Leo", "♌", "arslon", "sher"],
+    "sunbula": ["Sunbula", "Qiz", "Qiz (Virgo)", "Virgo", "♍", "sunbula", "qiz"],
+    "tarozi": ["Tarozi", "Tarozi (Libra)", "Libra", "♎", "tarozi"],
+    "chayon": ["Chayon", "Chayonlar", "Chayonlar (Scorpio)", "Scorpio", "♏", "chayon", "chayonlar"],
+    "oqotar": ["O'qotar", "Yoy", "Yoy (Sagittarius)", "Sagittarius", "♐", "oqotar", "yoy"],
+    "tog_echkisi": ["Tog' echkisi", "Tog' echkisi (Capricorn)", "Capricorn", "♑", "tog echkisi", "tog' echkisi", "togʻ echkisi"],
+    "qovga": ["Qovg'a", "Qovunchi", "Qovunchi (Aquarius)", "Aquarius", "♒", "qovga", "qovg'a", "qovgʻa", "qovunchi"],
+    "baliq": ["Baliq", "Baliq (Pisces)", "Pisces", "♓", "baliq"],
 }
+
+
+ZODIAC_NAME_TO_KEY = {}
+for key, names in ZODIAC_KEY_TO_NAMES.items():
+    for name in names:
+        ZODIAC_NAME_TO_KEY[name.lower().replace('’', "'").replace('`', "'").replace('ʻ', "'")] = key
+
+
+def normalize_zodiac_name(value):
+    """Burj nomini canonical kalitga aylantirish uchun yordamchi."""
+    if not value:
+        return None
+
+    text = str(value)
+    text = text.replace('’', "'").replace('`', "'").replace('ʻ', "'")
+    text = text.replace('♈', '').replace('♉', '').replace('♊', '')
+    text = text.replace('♋', '').replace('♌', '').replace('♍', '')
+    text = text.replace('♎', '').replace('♏', '').replace('♐', '')
+    text = text.replace('♑', '').replace('♒', '').replace('♓', '')
+    text = text.replace('(', ' ').replace(')', ' ')
+    text = text.lower().strip()
+    text = ' '.join(text.split())
+
+    return ZODIAC_NAME_TO_KEY.get(text) or ZODIAC_NAME_TO_KEY.get(text.replace("'", ''))
 
 
 async def search_users_by_zodiac(telegram_id, filters):
@@ -553,23 +577,26 @@ async def search_users_by_zodiac(telegram_id, filters):
         zodiac_keys = filters.get("zodiac_keys", [])
         zodiac_names = filters.get("zodiac_names", [])
 
-        # Barcha mumkin nom variantlarini yig'amiz
-        all_names = set(zodiac_names)
+        all_names = set()
 
-        # Agar zodiac_keys berilgan bo'lsa, kalitlardan barcha nomlarni yig'amiz
+        # Berilgan kalitlarni canonical nom variantlariga aylantiramiz
         if zodiac_keys:
             for key in zodiac_keys:
                 names = ZODIAC_KEY_TO_NAMES.get(key, [])
-                for name in names:
-                    all_names.add(name)
+                all_names.update(names)
 
-        # Agar zodiac_names berilgan bo'lsa, lekin zodiac_keys yo'q bo'lsa,
-        # zodiac_names dan kalitlarni topib, barcha variantlarni yig'amiz
-        if zodiac_names and not zodiac_keys:
-            for name in zodiac_names:
-                for key, names in ZODIAC_KEY_TO_NAMES.items():
-                    if name in names or any(name.lower() in n.lower() or n.lower() in name.lower() for n in names):
-                        all_names.update(names)
+        # Berilgan nomlardan canonical kalitlarni topamiz va ularni ham kengaytiramiz
+        for name in zodiac_names:
+            key = normalize_zodiac_name(name)
+            if key:
+                all_names.update(ZODIAC_KEY_TO_NAMES.get(key, []))
+            else:
+                all_names.add(name)
+
+        # Agar oldin faqat canonical kalitlar berilgan bo'lsa, ularni ham to'liq variantlariga kengaytiramiz
+        if not all_names:
+            for key in zodiac_keys:
+                all_names.update(ZODIAC_KEY_TO_NAMES.get(key, []))
 
         zodiac_names = list(all_names)
 
