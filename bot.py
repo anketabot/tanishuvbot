@@ -93,38 +93,95 @@ ZODIAC_COMPATIBILITY = {
 # Anketa saqlangan burj nomidan kalit kodga mapping
 # index.html dagi burj nomlari => ZODIAC_SIGNS kalitlari
 ZODIAC_NAME_TO_KEY = {
-    "Qo'y (Aries)": "qoy",
-    "Qo`y (Aries)": "qoy",
-    "Buqa (Taurus)": "buzoq",
-    "Buzoq": "buzoq",
-    "Egizaklar (Gemini)": "egizak",
-    "Egizak": "egizak",
-    "Qisqichbaqa (Cancer)": "qisqichbaqa",
-    "Qisqichbaqa": "qisqichbaqa",
-    "Sher (Leo)": "arslon",
-    "Arslon": "arslon",
-    "Qiz (Virgo)": "sunbula",
-    "Sunbula": "sunbula",
-    "Tarozi (Libra)": "tarozi",
-    "Tarozi": "tarozi",
-    "Chayonlar (Scorpio)": "chayon",
-    "Chayon": "chayon",
-    "Yoy (Sagittarius)": "oqotar",
-    "O'qotar": "oqotar",
-    "Tog' echkisi (Capricorn)": "tog_echkisi",
-    "Tog' echkisi": "tog_echkisi",
-    "Qovunchi (Aquarius)": "qovga",
-    "Qovg'a": "qovga",
-    "Baliq (Pisces)": "baliq",
-    "Baliq": "baliq",
+    "qoy": "qoy",
+    "qo'y": "qoy",
+    "qo`y": "qoy",
+    "qoy (aries)": "qoy",
+    "aries": "qoy",
+    "buzoq": "buzoq",
+    "buqa": "buzoq",
+    "buzoq (taurus)": "buzoq",
+    "taurus": "buzoq",
+    "egizak": "egizak",
+    "egizaklar": "egizak",
+    "egizaklar (gemini)": "egizak",
+    "gemini": "egizak",
+    "qisqichbaqa": "qisqichbaqa",
+    "qisqichbaqa (cancer)": "qisqichbaqa",
+    "cancer": "qisqichbaqa",
+    "arslon": "arslon",
+    "sher": "arslon",
+    "sher (leo)": "arslon",
+    "leo": "arslon",
+    "sunbula": "sunbula",
+    "qiz": "sunbula",
+    "qiz (virgo)": "sunbula",
+    "virgo": "sunbula",
+    "tarozi": "tarozi",
+    "tarozi (libra)": "tarozi",
+    "libra": "tarozi",
+    "chayon": "chayon",
+    "chayonlar": "chayon",
+    "chayonlar (scorpio)": "chayon",
+    "scorpio": "chayon",
+    "oqotar": "oqotar",
+    "o'qotar": "oqotar",
+    "yoy": "oqotar",
+    "yoy (sagittarius)": "oqotar",
+    "sagittarius": "oqotar",
+    "tog echkisi": "tog_echkisi",
+    "tog' echkisi": "tog_echkisi",
+    "togʻ echkisi": "tog_echkisi",
+    "tog echkisi (capricorn)": "tog_echkisi",
+    "capricorn": "tog_echkisi",
+    "qovga": "qovga",
+    "qovg'a": "qovga",
+    "qovgʻa": "qovga",
+    "qovunchi": "qovga",
+    "qovunchi (aquarius)": "qovga",
+    "aquarius": "qovga",
+    "baliq": "baliq",
+    "baliq (pisces)": "baliq",
+    "pisces": "baliq",
 }
+
+
+def normalize_zodiac_key(value: str) -> str | None:
+    """Burj nomini bir xil canonical kalitga olib keladi."""
+    if not value:
+        return None
+
+    text = str(value)
+    text = text.replace('’', "'").replace('`', "'").replace('ʻ', "'")
+    text = text.replace('♈', '').replace('♉', '').replace('♊', '')
+    text = text.replace('♋', '').replace('♌', '').replace('♍', '')
+    text = text.replace('♎', '').replace('♏', '').replace('♐', '')
+    text = text.replace('♑', '').replace('♒', '').replace('♓', '')
+    text = text.replace('(', ' ').replace(')', ' ')
+    text = text.lower()
+    text = ' '.join(text.split())
+
+    # To'liq kalit variantlari bilan tekshiramiz
+    direct = ZODIAC_NAME_TO_KEY.get(text)
+    if direct:
+        return direct
+
+    # Agar old formatda bo'lsa, avval "qo'y" kabi variantlarni ham ko'rib chiqamiz
+    alias = ZODIAC_NAME_TO_KEY.get(text.replace("'", ""))
+    if alias:
+        return alias
+
+    # To'liq nom bo'yicha qisman moslik
+    for name, key in ZODIAC_NAME_TO_KEY.items():
+        if text == name or text.startswith(name) or name.startswith(text):
+            return key
+
+    return None
 
 
 def get_zodiac_key(zodiac_value: str) -> str | None:
     """Burj nomidan kalit kodini qaytaradi."""
-    if not zodiac_value:
-        return None
-    return ZODIAC_NAME_TO_KEY.get(zodiac_value.strip())
+    return normalize_zodiac_key(zodiac_value)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -1502,4 +1559,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())s
