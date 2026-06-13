@@ -634,7 +634,8 @@ async def _advance_search(callback):
 @dp.callback_query(F.data == "show_main_menu")
 async def show_main_menu_callback(callback: types.CallbackQuery):
     await callback.answer()
-    await callback.message.answer("Asosiy menyu:", reply_markup=main_menu_keyboard())
+    keyboard = await main_menu_keyboard()
+    await callback.message.answer("Asosiy menyu:", reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "show_profile")
@@ -734,10 +735,11 @@ async def web_app_data_handler(message: types.Message):
 
             success = await db.save_user(message.from_user.id, profile_data)
             if success:
+                keyboard = await main_menu_keyboard()
                 await message.answer(
                     "✅ *Anketangiz muvaffaqiyatli saqlandi!*\n\nEndi qidirish orqali yangi do'stlar toping. 🔍",
                     parse_mode="Markdown",
-                    reply_markup=main_menu_keyboard()
+                    reply_markup=keyboard
                 )
             else:
                 await message.answer("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.")
