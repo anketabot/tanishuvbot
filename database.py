@@ -37,6 +37,10 @@ async def init_db():
         """)
 
         await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS about TEXT
+        """)
+
+        await conn.execute("""
             ALTER TABLE users ADD COLUMN IF NOT EXISTS super_likes_used INTEGER DEFAULT 0
         """)
 
@@ -386,14 +390,15 @@ async def save_user(telegram_id, data):
     conn = await get_db()
     try:
         await conn.execute("""
-            INSERT INTO users (telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (telegram_id) DO UPDATE SET
                 username = EXCLUDED.username,
                 full_name = EXCLUDED.full_name,
                 gender = EXCLUDED.gender,
                 age = EXCLUDED.age,
                 city = EXCLUDED.city,
+                about = EXCLUDED.about,
                 interests = EXCLUDED.interests,
                 zodiac = EXCLUDED.zodiac,
                 goals = EXCLUDED.goals,
@@ -407,6 +412,7 @@ async def save_user(telegram_id, data):
             data.get("gender"),
             data.get("age"),
             data.get("city"),
+            data.get("about"),
             data.get("interests", []),
             data.get("zodiac"),
             data.get("goals", []),
@@ -442,7 +448,7 @@ async def search_users(telegram_id, filters):
         excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
 
         query = """
-            SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64
+            SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
@@ -604,7 +610,7 @@ async def search_users_by_zodiac(telegram_id, filters):
             return []
 
         query = """
-            SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64
+            SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
@@ -703,7 +709,7 @@ async def get_all_users():
     conn = await get_db()
     try:
         rows = await conn.fetch(
-            "SELECT telegram_id, username, full_name, gender, age, city, interests, zodiac, goals, photo_file_id, photo_base64, invited_friends, created_at "
+            "SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, invited_friends, created_at "
             "FROM users WHERE is_active = TRUE ORDER BY created_at DESC"
         )
         return [dict(row) for row in rows]
