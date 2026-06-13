@@ -169,7 +169,7 @@ async def main_menu_keyboard():
     return keyboard
 
 
-async def get_city_region(city=''):
+def get_city_region(city=''):
     value = str(city or '').lower()
     rules = [
         {'region': 'Andijon viloyati', 'terms': ['andijon', 'xonobod', 'asaka', 'qorasuv', 'baliqchi', 'buloqboshi', 'izboskan', 'jalaquduq', 'marhamat', 'oltinkoʻl', 'oltinkol', 'paxtaobod', 'shahrixon', 'ulugʻnor', 'ulugnor', 'xoʻjaobod', 'xojaobod', 'qoʻrgʻontepa', 'qorgontepa']},
