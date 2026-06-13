@@ -227,7 +227,10 @@ async def main_menu_keyboard():
 
 
 def get_city_region(city=''):
-    value = str(city or '').lower()
+    value = str(city or '').lower().strip()
+    if value in ('toshkent shahri', 'toshkent city'):
+        return ''
+
     rules = [
         {'region': 'Andijon viloyati', 'terms': ['andijon', 'xonobod', 'asaka', 'qorasuv', 'baliqchi', 'buloqboshi', 'izboskan', 'jalaquduq', 'marhamat', 'oltinkoʻl', 'oltinkol', 'paxtaobod', 'shahrixon', 'ulugʻnor', 'ulugnor', 'xoʻjaobod', 'xojaobod', 'qoʻrgʻontepa', 'qorgontepa']},
         {'region': 'Buxoro viloyati', 'terms': ['buxoro', 'kogon', 'olot', 'vobkent', 'gijduvon', 'romitan', 'shofirkon', 'galaosiyo', 'gazli']},
@@ -261,13 +264,23 @@ def format_location_label(city=''):
 def format_user_card(user):
     gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
     zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
+    about_text = (user.get('about') or '').strip()
+    interests = (user.get('interests') or [])[:5]
+    interests_text = ', '.join(interests) if interests else "ko'rsatilmagan"
 
-    return (
-        f"{gender_icon} *{user['full_name']}*\n"
-        f"🎂 Yosh: {user['age']}\n"
-        f"📍 Shahar: {format_location_label(user.get('city'))}\n"
-        f"⭐ Burj: {zodiac_text}"
-    )
+    lines = [
+        f"{gender_icon} *{user['full_name']}*",
+        f"🎂 Yosh: {user['age']}",
+        f"📍 Shahar: {format_location_label(user.get('city'))}",
+        f"⭐ Burj: {zodiac_text}",
+        f"🎯 Qiziqishlar: {interests_text}",
+    ]
+    if about_text:
+        lines.append('')
+        lines.append('📝 Men haqimda:')
+        lines.append(about_text)
+
+    return "\n".join(lines)
 
 
 async def send_candidate_card(message, user):
@@ -443,7 +456,8 @@ async def my_profile(message: types.Message):
 
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
     goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
-    interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
+    interests_text = ", ".join((user.get("interests") or [])[:5]) if user.get("interests") else "ko'rsatilmagan"
+    about_text = (user.get("about") or "").strip() or "ko'rsatilmagan"
     zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
 
     # Limit status
@@ -461,6 +475,7 @@ async def my_profile(message: types.Message):
         f"🎂 Yosh: {user['age']}\n"
         f"📍 Shahar: {format_location_label(user.get('city'))}\n"
         f"⭐ Burj: {zodiac_text}\n"
+        f"📝 Men haqimda: {about_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
         f"🎯 Qiziqishlar: {interests_text}"
         f"{limit_text}"
@@ -705,7 +720,8 @@ async def show_profile_callback(callback: types.CallbackQuery):
 
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
     goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
-    interests_text = ", ".join(user["interests"]) if user["interests"] else "ko'rsatilmagan"
+    interests_text = ", ".join((user.get("interests") or [])[:5]) if user.get("interests") else "ko'rsatilmagan"
+    about_text = (user.get("about") or "").strip() or "ko'rsatilmagan"
     zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
 
     # Limit status
@@ -723,6 +739,7 @@ async def show_profile_callback(callback: types.CallbackQuery):
         f"🎂 Yosh: {user['age']}\n"
         f"📍 Shahar: {format_location_label(user.get('city'))}\n"
         f"⭐ Burj: {zodiac_text}\n"
+        f"📝 Men haqimda: {about_text}\n"
         f"❤️ Maqsad: {goals_text}\n"
         f"🎯 Qiziqishlar: {interests_text}"
         f"{limit_text}"
