@@ -22,6 +22,110 @@ from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD, GROUP_CHAT_ID, GROUP_I
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ========== BURJ SOZLAMALARI ==========
+
+ZODIAC_SIGNS = {
+    "qoy": ("Qo'y", "♈"),
+    "buzoq": ("Buzoq", "♉"),
+    "egizak": ("Egizak", "♊"),
+    "qisqichbaqa": ("Qisqichbaqa", "♋"),
+    "arslon": ("Arslon", "♌"),
+    "sunbula": ("Sunbula", "♍"),
+    "tarozi": ("Tarozi", "♎"),
+    "chayon": ("Chayon", "♏"),
+    "oqotar": ("O'qotar", "♐"),
+    "tog_echkisi": ("Tog' echkisi", "♑"),
+    "qovga": ("Qovg'a", "♒"),
+    "baliq": ("Baliq", "♓"),
+}
+
+ZODIAC_COMPATIBILITY = {
+    "qoy": {
+        "mos": ["arslon", "egizak", "oqotar"],
+        "qiyin": ["qisqichbaqa", "chayon", "baliq"]
+    },
+    "buzoq": {
+        "mos": ["sunbula", "qisqichbaqa", "tog_echkisi"],
+        "qiyin": ["egizak", "oqotar", "qovga"]
+    },
+    "egizak": {
+        "mos": ["qoy", "tarozi", "qovga"],
+        "qiyin": ["buzoq", "chayon", "tog_echkisi"]
+    },
+    "qisqichbaqa": {
+        "mos": ["buzoq", "baliq", "chayon"],
+        "qiyin": ["qoy", "egizak", "oqotar"]
+    },
+    "arslon": {
+        "mos": ["qoy", "egizak", "tarozi"],
+        "qiyin": ["buzoq", "tog_echkisi", "baliq"]
+    },
+    "sunbula": {
+        "mos": ["buzoq", "tog_echkisi", "chayon"],
+        "qiyin": ["egizak", "arslon", "oqotar"]
+    },
+    "tarozi": {
+        "mos": ["egizak", "arslon", "qovga"],
+        "qiyin": ["chayon", "qisqichbaqa", "tog_echkisi"]
+    },
+    "chayon": {
+        "mos": ["qisqichbaqa", "baliq", "buzoq"],
+        "qiyin": ["egizak", "qoy", "tarozi"]
+    },
+    "oqotar": {
+        "mos": ["qoy", "arslon", "qovga"],
+        "qiyin": ["buzoq", "qisqichbaqa", "tog_echkisi"]
+    },
+    "tog_echkisi": {
+        "mos": ["buzoq", "sunbula", "chayon"],
+        "qiyin": ["egizak", "tarozi", "oqotar"]
+    },
+    "qovga": {
+        "mos": ["oqotar", "egizak", "tarozi"],
+        "qiyin": ["buzoq", "chayon", "qisqichbaqa"]
+    },
+    "baliq": {
+        "mos": ["buzoq", "qisqichbaqa", "chayon"],
+        "qiyin": ["qoy", "egizak", "arslon"]
+    }
+}
+
+# Anketa saqlangan burj nomidan kalit kodga mapping
+# index.html dagi burj nomlari => ZODIAC_SIGNS kalitlari
+ZODIAC_NAME_TO_KEY = {
+    "Qo'y (Aries)": "qoy",
+    "Qo`y (Aries)": "qoy",
+    "Buqa (Taurus)": "buzoq",
+    "Buzoq": "buzoq",
+    "Egizaklar (Gemini)": "egizak",
+    "Egizak": "egizak",
+    "Qisqichbaqa (Cancer)": "qisqichbaqa",
+    "Qisqichbaqa": "qisqichbaqa",
+    "Sher (Leo)": "arslon",
+    "Arslon": "arslon",
+    "Qiz (Virgo)": "sunbula",
+    "Sunbula": "sunbula",
+    "Tarozi (Libra)": "tarozi",
+    "Tarozi": "tarozi",
+    "Chayonlar (Scorpio)": "chayon",
+    "Chayon": "chayon",
+    "Yoy (Sagittarius)": "oqotar",
+    "O'qotar": "oqotar",
+    "Tog' echkisi (Capricorn)": "tog_echkisi",
+    "Tog' echkisi": "tog_echkisi",
+    "Qovunchi (Aquarius)": "qovga",
+    "Qovg'a": "qovga",
+    "Baliq (Pisces)": "baliq",
+    "Baliq": "baliq",
+}
+
+
+def get_zodiac_key(zodiac_value: str) -> str | None:
+    """Burj nomidan kalit kodini qaytaradi."""
+    if not zodiac_value:
+        return None
+    return ZODIAC_NAME_TO_KEY.get(zodiac_value.strip())
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -319,13 +423,95 @@ async def start_search_callback(callback: types.CallbackQuery):
     builder.add(InlineKeyboardButton(text="👨 Erkak", callback_data="search_gender:erkak"))
     builder.add(InlineKeyboardButton(text="👩 Ayol", callback_data="search_gender:ayol"))
     builder.add(InlineKeyboardButton(text="🔄 Barchasi", callback_data="search_gender:all"))
-    builder.add(InlineKeyboardButton(text="⬅ Orqaga", callback_data="show_main_menu"))
+    builder.row(InlineKeyboardButton(text="⭐ Burjga mos qidirish", callback_data="search_zodiac_compat"))
+    builder.row(InlineKeyboardButton(text="⬅ Orqaga", callback_data="show_main_menu"))
 
     await callback.message.answer(
         "Qidirish uchun kimni izlayapsiz?\n\n"
-        "Erkak, ayol yoki barchasini tanlang.",
+        "Erkak, ayol yoki barchasini tanlang.\n"
+        "Yoki burjingizga mos odamlarni qidiring! ⭐",
         reply_markup=builder.as_markup()
     )
+
+
+@dp.callback_query(F.data == "search_zodiac_compat")
+async def search_zodiac_compat_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    user = await db.get_user(callback.from_user.id)
+    if not user or not user.get("zodiac"):
+        await callback.message.answer(
+            "❌ Burjingiz anketada ko'rsatilmagan.\n"
+            "Iltimos, avval anketangizni to'ldiring va burj tanlang."
+        )
+        return
+
+    my_zodiac = user.get("zodiac")
+    my_key = get_zodiac_key(my_zodiac)
+    if not my_key or my_key not in ZODIAC_COMPATIBILITY:
+        await callback.message.answer("❌ Burjingiz tanib olinmadi. Anketani yangilang.")
+        return
+
+    compat = ZODIAC_COMPATIBILITY[my_key]
+    mos_keys = compat["mos"]
+
+    # Mos burjlar nomlarini olish
+    mos_names = []
+    for k in mos_keys:
+        sign = ZODIAC_SIGNS.get(k)
+        if sign:
+            mos_names.append(f"{sign[1]} {sign[0]}")
+
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="👨 Faqat erkaklar", callback_data="search_zodiac_compat_gender:erkak"))
+    builder.add(InlineKeyboardButton(text="👩 Faqat ayollar", callback_data="search_zodiac_compat_gender:ayol"))
+    builder.row(InlineKeyboardButton(text="🔄 Barchasi", callback_data="search_zodiac_compat_gender:all"))
+    builder.row(InlineKeyboardButton(text="⬅ Orqaga", callback_data="start_search"))
+
+    sign_info = ZODIAC_SIGNS.get(my_key, (my_zodiac, "⭐"))
+    await callback.message.answer(
+        f"⭐ Sizning burjingiz: *{sign_info[1]} {sign_info[0]}*\n\n"
+        f"Sizga mos burjlar:\n{chr(10).join(mos_names)}\n\n"
+        "Qaysi jinsni qidirmoqchisiz?",
+        parse_mode="Markdown",
+        reply_markup=builder.as_markup()
+    )
+
+
+@dp.callback_query(F.data.startswith("search_zodiac_compat_gender:"))
+async def search_zodiac_compat_gender_callback(callback: types.CallbackQuery):
+    await callback.answer("Burjga mos qidirilmoqda...")
+    gender_value = callback.data.split(":", 1)[1]
+
+    user = await db.get_user(callback.from_user.id)
+    if not user or not user.get("zodiac"):
+        await callback.message.answer("❌ Burjingiz anketada ko'rsatilmagan.")
+        return
+
+    my_key = get_zodiac_key(user.get("zodiac"))
+    if not my_key:
+        await callback.message.answer("❌ Burjingiz tanib olinmadi.")
+        return
+
+    compat = ZODIAC_COMPATIBILITY.get(my_key, {})
+    mos_keys = compat.get("mos", [])
+
+    # Mos burj nomlarini collect qilamiz (ZODIAC_NAME_TO_KEY dan teskari)
+    mos_zodiac_names = []
+    for name, key in ZODIAC_NAME_TO_KEY.items():
+        if key in mos_keys:
+            mos_zodiac_names.append(name)
+
+    filters = {"zodiac_keys": mos_keys, "zodiac_names": mos_zodiac_names}
+    if gender_value != "all":
+        filters["gender"] = gender_value
+
+    users = await db.search_users_by_zodiac(callback.from_user.id, filters)
+    if not users:
+        await callback.message.answer("😔 Burjingizga mos hech kim topilmadi. Keyinroq qayta urinib ko'ring.")
+        return
+
+    search_sessions[callback.from_user.id] = {'users': users, 'index': 0}
+    await show_search_candidate(callback.message, callback.from_user.id, 0)
 
 
 @dp.callback_query(F.data.startswith("search_gender:"))
@@ -828,7 +1014,27 @@ async def search_api(request):
         filters = data.get('filters', {})
         if telegram_id is None:
             telegram_id = 0
-        users = await db.search_users(int(telegram_id), filters)
+
+        # Burjga mos qidirish
+        zodiac_compat_list = filters.pop('zodiac_compat_list', None)
+        if zodiac_compat_list:
+            # zodiac_compat_list = ["Sher (Leo)", "Egizaklar (Gemini)", ...]
+            # Bu nomlarni ZODIAC_NAME_TO_KEY orqali keysga aylantirib, keyin search_users_by_zodiac chaqiramiz
+            mos_keys = []
+            mos_names = []
+            for name in zodiac_compat_list:
+                key = get_zodiac_key(name)
+                if key:
+                    mos_keys.append(key)
+                    mos_names.append(name)
+
+            zodiac_filters = dict(filters)
+            zodiac_filters['zodiac_keys'] = mos_keys
+            zodiac_filters['zodiac_names'] = zodiac_compat_list  # original names for ILIKE
+            users = await db.search_users_by_zodiac(int(telegram_id), zodiac_filters)
+        else:
+            users = await db.search_users(int(telegram_id), filters)
+
         clean_users = [serialize_user(u) for u in users]
         return web.json_response({'success': True, 'users': clean_users})
     except Exception as e:
