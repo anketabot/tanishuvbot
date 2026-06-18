@@ -36,7 +36,7 @@ T = {
     'uz': {
         'welcome': "👋 Assalomu alaykum, {name}!\n\n💙 *Do'stlik & Tanishuv Botiga xush kelibsiz!*\n\nBu yerda siz yangi do'stlar topishingiz, muloqot qilishingiz mumkin.",
         'select_language': "🌍 Iltimos, tilni tanlang:",
-        'language_changed': "✅ Til o'zgartirildi: {lang}",
+        'language_changed': "✅ Til o'zgartirildi: {language_name}",
         'limits_info': "\n\n📊 *Kunlik limitlar:*\n• Like: 25 ta\n• Xabar yuborish: 10 ta\n• Super Like: 10 ta\n\n🎁 *Limitni oshirish:*\nGuruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\nGuruhga 10 ta odam qo'shsangiz → 1 oy limitsiz",
         'btn_webapp': "🌐 Web App",
         'btn_my_profile': "👤 Mening anketam",
@@ -112,7 +112,7 @@ T = {
     'ru': {
         'welcome': "👋 Здравствуйте, {name}!\n\n💙 *Добро пожаловать в бот знакомств!*\n\nЗдесь вы можете найти новых друзей и общаться.",
         'select_language': "🌍 Пожалуйста, выберите язык:",
-        'language_changed': "✅ Язык изменён: {lang}",
+        'language_changed': "✅ Язык изменён: {language_name}",
         'limits_info': "\n\n📊 *Ежедневные лимиты:*\n• Лайк: 25\n• Сообщения: 10\n• Супер Лайк: 10\n\n🎁 *Увеличить лимит:*\nПригласите 5 человек → 1 неделя без лимитов\nПригласите 10 человек → 1 месяц без лимитов",
         'btn_webapp': "🌐 Веб-приложение",
         'btn_my_profile': "👤 Мой профиль",
@@ -188,7 +188,7 @@ T = {
     'kk': {
         'welcome': "👋 Сәлеметсіз бе, {name}!\n\n💙 *Танысу ботына қош келдіңіз!*\n\nМұнда жаңа достар тауып, сөйлесе аласыз.",
         'select_language': "🌍 Тілді таңдаңыз:",
-        'language_changed': "✅ Тіл өзгертілді: {lang}",
+        'language_changed': "✅ Тіл өзгертілді: {language_name}",
         'limits_info': "\n\n📊 *Күнделікті лимиттер:*\n• Лайк: 25\n• Хабар: 10\n• Супер Лайк: 10\n\n🎁 *Лимитті арттыру:*\n5 адам қосыңыз → 1 апта лимитсіз\n10 адам қосыңыз → 1 ай лимитсіз",
         'btn_webapp': "🌐 Веб-қосымша",
         'btn_my_profile': "👤 Менің профилім",
@@ -264,7 +264,7 @@ T = {
     'ky': {
         'welcome': "👋 Саламатсызбы, {name}!\n\n💙 *Таанышу ботуна кош келиңиз!*\n\nБул жерде жаңы досторду таап, баарлаша аласыз.",
         'select_language': "🌍 Тилди тандаңыз:",
-        'language_changed': "✅ Тил өзгөртүлдү: {lang}",
+        'language_changed': "✅ Тил өзгөртүлдү: {language_name}",
         'limits_info': "\n\n📊 *Күндөлүк лимиттер:*\n• Лайк: 25\n• Билдирүү: 10\n• Супер Лайк: 10\n\n🎁 *Лимитти көбөйтүү:*\n5 адам кошуңуз → 1 апта лимитсиз\n10 адам кошуңуз → 1 ай лимитсиз",
         'btn_webapp': "🌐 Веб-тиркеме",
         'btn_my_profile': "👤 Менин профилим",
@@ -340,7 +340,7 @@ T = {
     'kaa': {
         'welcome': "👋 Sálem, {name}!\n\n💙 *Tanısıw botına xosh kelipsiz!*\n\nBul jerde jańa dostlar tabıp, sóylesse alasız.",
         'select_language': "🌍 Tildi tańlań:",
-        'language_changed': "✅ Til ózgeritildi: {lang}",
+        'language_changed': "✅ Til ózgeritildi: {language_name}",
         'limits_info': "\n\n📊 *Kúndelik limitler:*\n• Layk: 25\n• Xabar: 10\n• Super Layk: 10\n\n🎁 *Limitti arttırıw:*\n5 adam qosıń → 1 hápte limitsiz\n10 adam qosıń → 1 ay limitsiz",
         'btn_webapp': "🌐 Veb-qosımsha",
         'btn_my_profile': "👤 Meniń profilim",
@@ -416,7 +416,7 @@ T = {
     'tg': {
         'welcome': "👋 Салом, {name}!\n\n💙 *Ба боти шиносоӣ хуш омадед!*\n\nДар ин ҷо шумо метавонед дӯстони нав пайдо кунед ва гуфтугӯ кунед.",
         'select_language': "🌍 Лутфан забонро интихоб кунед:",
-        'language_changed': "✅ Забон иваз шуд: {lang}",
+        'language_changed': "✅ Забон иваз шуд: {language_name}",
         'limits_info': "\n\n📊 *Лимитҳои ҳаррӯза:*\n• Лайк: 25\n• Паём: 10\n• Супер Лайк: 10\n\n🎁 *Лимитро зиёд кардан:*\n5 нафар даъват кунед → 1 ҳафта бе лимит\n10 нафар даъват кунед → 1 моҳ бе лимит",
         'btn_webapp': "🌐 Веб-барнома",
         'btn_my_profile': "👤 Профили ман",
@@ -854,7 +854,7 @@ async def set_language_callback(callback: types.CallbackQuery):
     await db.set_user_language(callback.from_user.id, lang_code)
     lang_name = SUPPORTED_LANGUAGES[lang_code]['name']
 
-    await callback.answer(t(lang_code, 'language_changed', lang=lang_name), show_alert=True)
+    await callback.answer(t(lang_code, 'language_changed', language_name=lang_name), show_alert=True)
 
     # Asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang_code)
