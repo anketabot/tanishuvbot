@@ -3,10 +3,8 @@ import json
 from datetime import datetime, date, timedelta
 from config import DATABASE_URL
 
-
 async def get_db():
     return await asyncpg.connect(DATABASE_URL)
-
 
 async def init_db():
     conn = await get_db()
@@ -50,6 +48,11 @@ async def init_db():
 
         await conn.execute("""
             ALTER TABLE users ADD COLUMN IF NOT EXISTS friends_invited INTEGER DEFAULT 0
+        """)
+
+        # ===== TIL MAYDONI =====
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'uz'
         """)
 
         # Likes
@@ -97,8 +100,6 @@ async def init_db():
             )
         """)
 
-        # ========== YANGI JADVALLAR ==========
-
         # Kunlik limitlar
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS daily_limits (
@@ -111,7 +112,7 @@ async def init_db():
             )
         """)
 
-        # Referral rewards - guruhga odam qo'shish orqali bonus
+        # Referral rewards
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS referral_rewards (
                 id BIGSERIAL PRIMARY KEY,
@@ -144,7 +145,7 @@ async def init_db():
             )
         """)
 
-        # Guruhga odam qo'shishlarini kuzatish (referral)
+        # Guruhga odam qo'shishlarini kuzatish
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS group_invites (
                 id BIGSERIAL PRIMARY KEY,
@@ -159,24 +160,62 @@ async def init_db():
         await conn.close()
 
 
-# ========== DAILY LIMITS ==========
-
-async def get_daily_limits(telegram_id):
-    """Bugungi kunlik limitlarni olish. Agar yangi kundaligi bo'lsa, reset qiladi."""
+# ========== TIL FUNKSIYALARI ==========
+async def get_user_language(telegram_id):
+    """Foydalanuvchining tilini olish"""
     conn = await get_db()
     try:
-        # Avval oldingi recordni olish
+        row = await conn.fetchrow(
+            "SELECT language FROM users WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row and row['language']:
+            return row['language']
+        return 'uz'  # default
+    finally:
+        await conn.close()
+
+
+async def set_user_language(telegram_id, language):
+    """Foydalanuvchining tilini saqlash"""
+    conn = await get_db()
+    try:
+        # Avval user borligini tekshirish
+        row = await conn.fetchrow(
+            "SELECT telegram_id FROM users WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row:
+            await conn.execute(
+                "UPDATE users SET language = $1 WHERE telegram_id = $2",
+                language, telegram_id
+            )
+        else:
+            # Yangi user yaratish (faqat til bilan)
+            await conn.execute(
+                "INSERT INTO users (telegram_id, language) VALUES ($1, $2)",
+                telegram_id, language
+            )
+        return True
+    except Exception as e:
+        print(f"Error setting language: {e}")
+        return False
+    finally:
+        await conn.close()
+
+
+# ========== DAILY LIMITS ==========
+async def get_daily_limits(telegram_id):
+    conn = await get_db()
+    try:
         row = await conn.fetchrow(
             "SELECT likes_used, messages_used, super_likes_used, limit_date FROM daily_limits WHERE telegram_id = $1",
             telegram_id
         )
-
         today = date.today()
 
         if row:
-            # Yangi kunmi tekshirish
             if row['limit_date'] < today:
-                # Reset kunlik limitlar
                 await conn.execute(
                     """UPDATE daily_limits
                        SET likes_used = 0, messages_used = 0, super_likes_used = 0, limit_date = $1
@@ -190,7 +229,6 @@ async def get_daily_limits(telegram_id):
                 'super_likes_used': row['super_likes_used']
             }
         else:
-            # Yangi record yaratish
             await conn.execute(
                 "INSERT INTO daily_limits (telegram_id, likes_used, messages_used, super_likes_used, limit_date) VALUES ($1, 0, 0, 0, $2)",
                 telegram_id, today
@@ -201,7 +239,6 @@ async def get_daily_limits(telegram_id):
 
 
 async def is_unlimited(telegram_id):
-    """Foydalanuvchi limitsiz davrda ekanligini tekshirish"""
     conn = await get_db()
     try:
         row = await conn.fetchrow(
@@ -216,36 +253,26 @@ async def is_unlimited(telegram_id):
 
 
 async def check_and_increment_limit(telegram_id, limit_type):
-    """
-    Limitni tekshirish va oshirish.
-    limit_type: 'likes', 'messages', 'super_likes'
-    Agar limit tugagan bo'lsa False, aks holda True qaytaradi.
-    """
-    # Avval limitsiz ekanligini tekshirish
     unlimited = await is_unlimited(telegram_id)
     if unlimited:
-        return True  # Limitsiz foydalanuvchi - cheklov yo'q
+        return True
 
-    # Kunlik limitlarni olish
     limits = await get_daily_limits(telegram_id)
 
-    # Default limitlar
     MAX_LIKES = 25
     MAX_MESSAGES = 10
     MAX_SUPER_LIKES = 10
 
     if limit_type == 'likes':
         if limits['likes_used'] >= MAX_LIKES:
-            return False  # Limit tugagan
+            return False
         await _increment_limit(telegram_id, 'likes_used')
         return True
-
     elif limit_type == 'messages':
         if limits['messages_used'] >= MAX_MESSAGES:
             return False
         await _increment_limit(telegram_id, 'messages_used')
         return True
-
     elif limit_type == 'super_likes':
         if limits['super_likes_used'] >= MAX_SUPER_LIKES:
             return False
@@ -256,7 +283,6 @@ async def check_and_increment_limit(telegram_id, limit_type):
 
 
 async def _increment_limit(telegram_id, column):
-    """Limit maydonini 1 ga oshirish"""
     conn = await get_db()
     try:
         await conn.execute(
@@ -270,7 +296,6 @@ async def _increment_limit(telegram_id, column):
 
 
 async def get_limit_status(telegram_id):
-    """Foydalanuvchining to'liq limit statusini olish"""
     unlimited = await is_unlimited(telegram_id)
     if unlimited:
         return {
@@ -279,7 +304,6 @@ async def get_limit_status(telegram_id):
             'messages_remaining': 999,
             'super_likes_remaining': 999
         }
-
     limits = await get_daily_limits(telegram_id)
     MAX_LIKES = 25
     MAX_MESSAGES = 10
@@ -297,32 +321,23 @@ async def get_limit_status(telegram_id):
 
 
 # ========== REFERRAL REWARDS ==========
-
 async def process_referral(referrer_id, referred_id):
-    """
-    Yangi referral qayta ishlash.
-    Returns: (success, reward_text)
-    """
     conn = await get_db()
     try:
-        # Avval referred_id avval referral qilganini tekshirish
         existing = await conn.fetchrow(
             "SELECT id FROM referrals WHERE referred_id = $1", referred_id
         )
         if existing:
             return False, "Bu foydalanuvchi avval referral qilgan."
 
-        # O'zini o'zi qo'shishni oldini olish
         if referrer_id == referred_id:
             return False, "O'zingizni qo'sha olmaysiz."
 
-        # Referralni saqlash
         await conn.execute(
             "INSERT INTO referrals (referrer_id, referred_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             referrer_id, referred_id
         )
 
-        # Referral count ni oshirish
         await conn.execute("""
             INSERT INTO referral_rewards (telegram_id, referral_count, updated_at)
             VALUES ($1, 1, NOW())
@@ -331,14 +346,12 @@ async def process_referral(referrer_id, referred_id):
                 updated_at = NOW()
         """, referrer_id)
 
-        # Reward berish
         row = await conn.fetchrow(
             "SELECT referral_count FROM referral_rewards WHERE telegram_id = $1",
             referrer_id
         )
         count = row['referral_count'] if row else 0
 
-        # 5 ta = 1 hafta, 10 ta = 1 oy
         if count == 5:
             until = datetime.now() + timedelta(days=7)
             await conn.execute(
@@ -355,13 +368,11 @@ async def process_referral(referrer_id, referred_id):
             return True, f"🎉 Ajoyib! {count} ta odam qo'shdingiz. 1 oy limitsiz foydalanish!"
 
         return True, f"✅ {count} ta odam qo'shildi. 5 tagacha: 1 hafta, 10 tagacha: 1 oy limitsiz."
-
     finally:
         await conn.close()
 
 
 async def get_referral_status(telegram_id):
-    """Referral statusini olish"""
     conn = await get_db()
     try:
         row = await conn.fetchrow(
@@ -380,12 +391,10 @@ async def get_referral_status(telegram_id):
 
 
 async def get_referral_link(telegram_id, bot_username):
-    """Referral link yaratish"""
     return f"https://t.me/{bot_username}?start=ref_{telegram_id}"
 
 
 # ========== USER FUNCTIONS ==========
-
 async def save_user(telegram_id, data):
     conn = await get_db()
     try:
@@ -486,13 +495,11 @@ async def search_users(telegram_id, filters):
             params.append(filters["interests"])
             idx += 1
 
-        # Ism bo'yicha qidirish (yangi)
         if filters.get("name"):
             query += f" AND full_name ILIKE ${idx}"
             params.append(f"%{filters['name']}%")
             idx += 1
 
-        # Burj bo'yicha qidirish (to'g'ridan-to'g'ri)
         if filters.get("zodiac"):
             query += f" AND zodiac ILIKE ${idx}"
             params.append(f"%{filters['zodiac']}%")
@@ -501,7 +508,6 @@ async def search_users(telegram_id, filters):
         query += " LIMIT 50"
         rows = await conn.fetch(query, *params)
 
-        # Match va limit status
         match_rows = await conn.fetch(
             "SELECT user1, user2 FROM matches WHERE user1 = $1 OR user2 = $1",
             telegram_id
@@ -521,8 +527,7 @@ async def search_users(telegram_id, filters):
         await conn.close()
 
 
-# Har bir burj kaliti uchun barcha mumkin nom variantlari
-# Bu ma'lumotlar bazasida turli formatlarda saqlangan burj nomlarini topish uchun
+# Burj nomlari
 ZODIAC_KEY_TO_NAMES = {
     "qoy": ["Qo'y", "Qo'y (Aries)", "Aries", "♈", "qoy", "qo'y", "qo`y"],
     "buzoq": ["Buqa", "Buzoq", "Buqa (Taurus)", "Taurus", "♉", "buzoq", "buqa"],
@@ -538,7 +543,6 @@ ZODIAC_KEY_TO_NAMES = {
     "baliq": ["Baliq", "Baliq (Pisces)", "Pisces", "♓", "baliq"],
 }
 
-
 ZODIAC_NAME_TO_KEY = {}
 for key, names in ZODIAC_KEY_TO_NAMES.items():
     for name in names:
@@ -546,10 +550,8 @@ for key, names in ZODIAC_KEY_TO_NAMES.items():
 
 
 def normalize_zodiac_name(value):
-    """Burj nomini canonical kalitga aylantirish uchun yordamchi."""
     if not value:
         return None
-
     text = str(value)
     text = text.replace('’', "'").replace('`', "'").replace('ʻ', "'")
     text = text.replace('♈', '').replace('♉', '').replace('♊', '')
@@ -559,19 +561,10 @@ def normalize_zodiac_name(value):
     text = text.replace('(', ' ').replace(')', ' ')
     text = text.lower().strip()
     text = ' '.join(text.split())
-
     return ZODIAC_NAME_TO_KEY.get(text) or ZODIAC_NAME_TO_KEY.get(text.replace("'", ''))
 
 
 async def search_users_by_zodiac(telegram_id, filters):
-    """
-    Burj mosligiga qarab foydalanuvchilarni qidirish.
-    filters: {
-        'zodiac_names': [...],  # Mos burjlar nomlari ro'yxati
-        'zodiac_keys': [...],   # Mos burjlar kalitlari (barcha nom variantlarini yig'ish uchun)
-        'gender': 'erkak'|'ayol'  # ixtiyoriy
-    }
-    """
     conn = await get_db()
     try:
         blocked_ids = await conn.fetch(
@@ -585,13 +578,11 @@ async def search_users_by_zodiac(telegram_id, filters):
 
         all_names = set()
 
-        # Berilgan kalitlarni canonical nom variantlariga aylantiramiz
         if zodiac_keys:
             for key in zodiac_keys:
                 names = ZODIAC_KEY_TO_NAMES.get(key, [])
                 all_names.update(names)
 
-        # Berilgan nomlardan canonical kalitlarni topamiz va ularni ham kengaytiramiz
         for name in zodiac_names:
             key = normalize_zodiac_name(name)
             if key:
@@ -599,7 +590,6 @@ async def search_users_by_zodiac(telegram_id, filters):
             else:
                 all_names.add(name)
 
-        # Agar oldin faqat canonical kalitlar berilgan bo'lsa, ularni ham to'liq variantlariga kengaytiramiz
         if not all_names:
             for key in zodiac_keys:
                 all_names.update(ZODIAC_KEY_TO_NAMES.get(key, []))
@@ -619,8 +609,6 @@ async def search_users_by_zodiac(telegram_id, filters):
         params = [excluded]
         idx = 2
 
-        # Mos burjlardan biri bilan zodiac mos kelishini tekshirish
-        # Har bir zodiac_name uchun ILIKE shartlari yozamiz
         like_conditions = []
         for name in zodiac_names:
             like_conditions.append(f"zodiac ILIKE ${idx}")
@@ -664,7 +652,6 @@ async def add_like(from_user, to_user):
             "INSERT INTO likes (from_user, to_user) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             from_user, to_user
         )
-        # Check mutual like
         mutual = await conn.fetchrow(
             "SELECT id FROM likes WHERE from_user = $1 AND to_user = $2",
             to_user, from_user
@@ -675,7 +662,7 @@ async def add_like(from_user, to_user):
                 "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                 u1, u2
             )
-            return True  # Match!
+            return True
         return False
     finally:
         await conn.close()
@@ -748,7 +735,6 @@ async def get_top_cities(limit=10):
 
 
 async def can_write(from_user, to_user):
-    """Allow messaging only if match exists."""
     conn = await get_db()
     try:
         match = await conn.fetchrow(
@@ -772,13 +758,12 @@ async def increment_super_like_usage(from_user):
 
 
 # ========== CHAT & MATCH FUNCTIONS ==========
-
 async def get_pending_likes(telegram_id):
     conn = await get_db()
     try:
         rows = await conn.fetch("""
             SELECT u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
-                   u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64, l.created_at
+            u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64, l.created_at
             FROM likes l
             JOIN users u ON u.telegram_id = l.from_user
             WHERE l.to_user = $1
@@ -835,8 +820,8 @@ async def get_matches(telegram_id):
     try:
         rows = await conn.fetch("""
             SELECT m.id as match_id, m.created_at as matched_at,
-                   u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
-                   u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64
+            u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
+            u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64
             FROM matches m
             JOIN users u ON (
                 CASE
@@ -906,10 +891,8 @@ async def mark_messages_read(match_id, reader_id):
         await conn.close()
 
 
-# ========== ESKI REFERRAL FUNCTIONS (deprecated) ==========
-
+# ========== REFERRAL FUNCTIONS ==========
 async def register_invite(inviter_id, invited_id):
-    """Deprecated - yangi process_referral ishlating"""
     return await process_referral(inviter_id, invited_id)
 
 
@@ -953,7 +936,6 @@ async def get_group_subscribed(telegram_id):
 
 
 async def get_group_invite_count(telegram_id):
-    """Guruhga taklif qilinganlar sonini olish"""
     conn = await get_db()
     try:
         row = await conn.fetchrow(
@@ -966,7 +948,6 @@ async def get_group_invite_count(telegram_id):
 
 
 async def get_group_invitees(telegram_id):
-    """Guruhga taklif qilinganlar ro'yxatini olish"""
     conn = await get_db()
     try:
         rows = await conn.fetch("""
@@ -982,7 +963,6 @@ async def get_group_invitees(telegram_id):
 
 
 async def record_group_invite(inviter_id, invited_id):
-    """Guruhga odam qo'shishni qayd etish"""
     conn = await get_db()
     try:
         await conn.execute("""
@@ -998,7 +978,6 @@ async def record_group_invite(inviter_id, invited_id):
 
 
 async def record_group_join(telegram_id, invited_by=None):
-    """Guruhga a'zo bo'lishni qayd etish"""
     conn = await get_db()
     try:
         await conn.execute("""
