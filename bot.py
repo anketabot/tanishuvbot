@@ -4,7 +4,6 @@ import json
 import logging
 import os
 from urllib.parse import urlparse
-
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -15,15 +14,498 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
-
 import database as db
 from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD, GROUP_CHAT_ID, GROUP_INVITE_LINK
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ========== BURJ SOZLAMALARI ==========
 
+# ========== KO'P TILLI QO'LLAB-QUVVATLASH ==========
+SUPPORTED_LANGUAGES = {
+    'uz': {'name': "O'zbekcha", 'flag': '🇺🇿'},
+    'ru': {'name': 'Русский', 'flag': '🇷🇺'},
+    'kk': {'name': 'Қазақша', 'flag': '🇰🇿'},
+    'ky': {'name': 'Кыргызча', 'flag': '🇰🇬'},
+    'kaa': {'name': 'Qaraqalpaqsha', 'flag': '🇺🇿'},
+    'tg': {'name': 'Тоҷикӣ', 'flag': '🇹🇯'},
+}
+
+# Barcha tarjimalar
+T = {
+    'uz': {
+        'welcome': "👋 Assalomu alaykum, {name}!\n\n💙 *Do'stlik & Tanishuv Botiga xush kelibsiz!*\n\nBu yerda siz yangi do'stlar topishingiz, muloqot qilishingiz mumkin.",
+        'select_language': "🌍 Iltimos, tilni tanlang:",
+        'language_changed': "✅ Til o'zgartirildi: {lang}",
+        'limits_info': "\n\n📊 *Kunlik limitlar:*\n• Like: 25 ta\n• Xabar yuborish: 10 ta\n• Super Like: 10 ta\n\n🎁 *Limitni oshirish:*\nGuruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\nGuruhga 10 ta odam qo'shsangiz → 1 oy limitsiz",
+        'btn_webapp': "🌐 Web App",
+        'btn_my_profile': "👤 Mening anketam",
+        'btn_search': "🔎 Qidirish",
+        'btn_group': "👥 Guruhga qo'shilish",
+        'btn_change_lang': "🌍 Tilni o'zgartirish",
+        'no_profile': "❌ Siz hali anketa to'ldirmagansiz. Iltimos, avval anketangizni to'ldiring.",
+        'search_who': "Qidirish uchun kimni izlayapsiz?\n\nErkak, ayol yoki barchasini tanlang.\nYoki burjingizga mos odamlarni qidiring! ⭐",
+        'btn_male': "👨 Erkak",
+        'btn_female': "👩 Ayol",
+        'btn_all': "🔄 Barchasi",
+        'btn_zodiac_compat': "⭐ Burjga mos qidirish",
+        'btn_back': "⬅ Orqaga",
+        'btn_skip': "❌ O'tkazib yuborish",
+        'btn_write': "✉️ Yozish",
+        'btn_like': "❤️ Like",
+        'btn_super_like': "⭐ Super Like",
+        'btn_block': "🚫 Blok",
+        'no_candidates': "😔 Hech qanday nomzod topilmadi.",
+        'all_viewed': "✅ Barcha nomzodlar ko'rib chiqildi. Qayta qidirish uchun menyudan yana urinib ko'ring.",
+        'search_counter': "\n\n🔎 {current}/{total} ta nomzoddan hozirgi",
+        'no_zodiac': "❌ Burjingiz anketada ko'rsatilmagan.\nIltimos, avval anketangizni to'ldiring va burj tanlang.",
+        'zodiac_not_recognized': "❌ Burjingiz tanib olinmadi. Anketani yangilang.",
+        'your_zodiac': "⭐ Sizning burjingiz: *{sign}*\n\nSizga mos burjlar:\n{compat}\n\nQaysi jinsni qidirmoqchisiz?",
+        'no_zodiac_match': "😔 Burjingizga mos hech kim topilmadi. Keyinroq qayta urinib ko'ring.",
+        'no_results': "😔 Hech kim topilmadi. Keyinroq yana urinib ko'ring.",
+        'searching': "Qidirilmoqda...",
+        'like_sent': "💙 Like yuborildi!",
+        'match': "🎉 Match! {name} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.",
+        'like_notify': "💌 {name} sizni like qildi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
+        'super_like_sent': "⭐ Super Like yuborildi!",
+        'super_like_match': "⭐ Super Like Match! {name} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.",
+        'super_like_notify': "⭐ {name} sizga Super Like bosdi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
+        'blocked': "🚫 Foydalanuvchi bloklandi.",
+        'need_like_first': "❌ Avval like yuborish kerak!",
+        'send_message_text': "💬 Xabar matnini yozing. Bitta xabar yuboriladi.",
+        'message_sent': "✅ Xabar yuborildi!",
+        'empty_message': "❌ Bo'sh xabar jo'natib bo'lmaydi.",
+        'new_message': "💬 {name} dan yangi xabar:\n{text}",
+        'profile_saved': "✅ *Anketangiz muvaffaqiyatli saqlandi!*\n\nEndi qidirish orqali yangi do'stlar toping. 🔍",
+        'save_error': "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.",
+        'limit_exceeded_likes': "❌ Kunlik like limitingiz tugadi!\n\n5 ta do'st qo'shganingizdan keyin 1 hafta, 10 ta bo'lsa 1 oy limitsiz bo'lasiz.",
+        'limit_exceeded_messages': "❌ Kunlik xabar yuborish limitingiz tugadi!\n\n5 ta do'st qo'shganingizdan keyin 1 hafta, 10 ta bo'lsa 1 oy limitsiz bo'lasiz.",
+        'limit_exceeded_super': "❌ Kunlik Super Like limitingiz tugadi!\n\n5 ta do'st qo'shganingizdan keyin 1 hafta, 10 ta bo'lsa 1 oy limitsiz bo'lasiz.",
+        'limit_info_long': "❌ Kunlik limitingiz tugadi!\n\n📊 Kunlik limitlar:\n• Like: 25 ta\n• Xabar yuborish: 10 ta\n• Super Like: 10 ta\n\n🎁 Limitni oshirish:\nGuruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\nGuruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\nYoki ertaga yangi limit bilan davom etasiz.",
+        'unlimited_access': "\n✅ *Limitsiz foydalanish*",
+        'daily_limits': "\n📊 *Kunlik limitlar:*\n• Like: {likes}/25\n• Xabar: {messages}/10\n• Super Like: {super_likes}/10",
+        'gender_male': "Erkak",
+        'gender_female': "Ayol",
+        'age': "Yosh",
+        'city': "Shahar",
+        'zodiac': "Burj",
+        'about': "Men haqimda",
+        'goals': "Maqsad",
+        'interests': "Qiziqishlar",
+        'not_specified': "ko'rsatilmagan",
+        'searching_zodiac': "Burjga mos qidirilmoqda...",
+        'main_menu': "Asosiy menyu:",
+        'group_invite_success': "🎉 *Tabriklaymiz!*\n\n*{name}* guruhga qo'shildi!\n\n{msg}",
+        'like_accepted': "🎉 *{name}* sizning like-ingizni qabul qildi!\n\n💬 Endi Web App'dagi Chat bo'limidan suhbat boshlashingiz mumkin.",
+        'chat_started': "✅ Siz *{name}* bilan muloqotni boshladingiz!",
+        'rejected': "❌ *{name}* sizni rad qildi.\n\nKeyinroq yana sinab ko'ring.",
+        'like_not_found': "Like topilmadi",
+        'super_like_label': "⭐ *Super Like Match!* ",
+        'match_label': "🎉 *Match!* ",
+        'super_like_note': "\n\n{sticker} Sizga tanlangan emoji bilan Super Like yuborildi.",
+        'super_like_note_default': "\n\nSizga Super Like yuborildi.",
+        'pressed_super_like': "Super Like bosdi!",
+        'pressed_like': "ham sizni yoqtirdi!",
+        'write_username': "@{username} ga yozishingiz mumkin!",
+        'no_username': "Bu foydalanuvchining username yo'q.",
+    },
+    'ru': {
+        'welcome': "👋 Здравствуйте, {name}!\n\n💙 *Добро пожаловать в бот знакомств!*\n\nЗдесь вы можете найти новых друзей и общаться.",
+        'select_language': "🌍 Пожалуйста, выберите язык:",
+        'language_changed': "✅ Язык изменён: {lang}",
+        'limits_info': "\n\n📊 *Ежедневные лимиты:*\n• Лайк: 25\n• Сообщения: 10\n• Супер Лайк: 10\n\n🎁 *Увеличить лимит:*\nПригласите 5 человек → 1 неделя без лимитов\nПригласите 10 человек → 1 месяц без лимитов",
+        'btn_webapp': "🌐 Веб-приложение",
+        'btn_my_profile': "👤 Мой профиль",
+        'btn_search': "🔎 Поиск",
+        'btn_group': "👥 Присоединиться к группе",
+        'btn_change_lang': "🌍 Изменить язык",
+        'no_profile': "❌ Вы ещё не заполнили анкету. Пожалуйста, сначала заполните профиль.",
+        'search_who': "Кого вы ищете?\n\nВыберите: мужчина, женщина или все.\nИли найдите людей по знаку зодиака! ⭐",
+        'btn_male': "👨 Мужчина",
+        'btn_female': "👩 Женщина",
+        'btn_all': "🔄 Все",
+        'btn_zodiac_compat': "⭐ Поиск по знаку зодиака",
+        'btn_back': "⬅ Назад",
+        'btn_skip': "❌ Пропустить",
+        'btn_write': "✉️ Написать",
+        'btn_like': "❤️ Лайк",
+        'btn_super_like': "⭐ Супер Лайк",
+        'btn_block': "🚫 Блок",
+        'no_candidates': "😔 Кандидаты не найдены.",
+        'all_viewed': "✅ Все кандидаты просмотрены. Попробуйте поискать ещё раз.",
+        'search_counter': "\n\n🔎 Кандидат {current} из {total}",
+        'no_zodiac': "❌ Ваш знак зодиака не указан.\nПожалуйста, заполните анкету и выберите знак зодиака.",
+        'zodiac_not_recognized': "❌ Ваш знак зодиака не распознан. Обновите анкету.",
+        'your_zodiac': "⭐ Ваш знак зодиака: *{sign}*\n\nСовместимые знаки:\n{compat}\n\nКого вы хотите найти?",
+        'no_zodiac_match': "😔 По знаку зодиака никого не найдено. Попробуйте позже.",
+        'no_results': "😔 Никого не найдено. Попробуйте позже.",
+        'searching': "Поиск...",
+        'like_sent': "💙 Лайк отправлен!",
+        'match': "🎉 Совпадение! {name} тоже вас лайкнул(а)!\n\nТеперь вы можете общаться.",
+        'like_notify': "💌 {name} лайкнул(а) вас!\n\nПроверьте раздел Чат в Веб-приложении.",
+        'super_like_sent': "⭐ Супер Лайк отправлен!",
+        'super_like_match': "⭐ Супер Лайк Совпадение! {name} тоже вас лайкнул(а)!\n\nТеперь вы можете общаться.",
+        'super_like_notify': "⭐ {name} отправил(а) вам Супер Лайк!\n\nПроверьте раздел Чат в Веб-приложении.",
+        'blocked': "🚫 Пользователь заблокирован.",
+        'need_like_first': "❌ Сначала нужно отправить лайк!",
+        'send_message_text': "💬 Напишите текст сообщения. Будет отправлено одно сообщение.",
+        'message_sent': "✅ Сообщение отправлено!",
+        'empty_message': "❌ Нельзя отправить пустое сообщение.",
+        'new_message': "💬 Новое сообщение от {name}:\n{text}",
+        'profile_saved': "✅ *Ваша анкета успешно сохранена!*\n\nТеперь найдите новых друзей через поиск. 🔍",
+        'save_error': "❌ Произошла ошибка. Попробуйте ещё раз.",
+        'limit_exceeded_likes': "❌ Ежедневный лимит лайков исчерпан!\n\nПригласите 5 друзей → 1 неделя без лимитов, 10 друзей → 1 месяц без лимитов.",
+        'limit_exceeded_messages': "❌ Ежедневный лимит сообщений исчерпан!\n\nПригласите 5 друзей → 1 неделя без лимитов, 10 друзей → 1 месяц без лимитов.",
+        'limit_exceeded_super': "❌ Ежедневный лимит Супер Лайков исчерпан!\n\nПригласите 5 друзей → 1 неделя без лимитов, 10 друзей → 1 месяц без лимитов.",
+        'limit_info_long': "❌ Ежедневный лимит исчерпан!\n\n📊 Лимиты:\n• Лайк: 25\n• Сообщения: 10\n• Супер Лайк: 10\n\n🎁 Увеличить:\n5 приглашённых → 1 неделя без лимитов\n10 приглашённых → 1 месяц без лимитов\n\nИли завтра новый лимит.",
+        'unlimited_access': "\n✅ *Безлимитный доступ*",
+        'daily_limits': "\n📊 *Ежедневные лимиты:*\n• Лайк: {likes}/25\n• Сообщения: {messages}/10\n• Супер Лайк: {super_likes}/10",
+        'gender_male': "Мужчина",
+        'gender_female': "Женщина",
+        'age': "Возраст",
+        'city': "Город",
+        'zodiac': "Знак зодиака",
+        'about': "О себе",
+        'goals': "Цели",
+        'interests': "Интересы",
+        'not_specified': "не указано",
+        'searching_zodiac': "Поиск по знаку зодиака...",
+        'main_menu': "Главное меню:",
+        'group_invite_success': "🎉 *Поздравляем!*\n\n*{name}* присоединился к группе!\n\n{msg}",
+        'like_accepted': "🎉 *{name}* принял(а) ваш лайк!\n\n💬 Теперь начните общение в Чате Веб-приложения.",
+        'chat_started': "✅ Вы начали общение с *{name}*!",
+        'rejected': "❌ *{name}* отклонил(а) вас.\n\nПопробуйте позже.",
+        'like_not_found': "Лайк не найден",
+        'super_like_label': "⭐ *Супер Лайк Совпадение!* ",
+        'match_label': "🎉 *Совпадение!* ",
+        'super_like_note': "\n\n{sticker} Вам отправлен Супер Лайк с выбранным эмодзи.",
+        'super_like_note_default': "\n\nВам отправлен Супер Лайк.",
+        'pressed_super_like': "отправил(а) Супер Лайк!",
+        'pressed_like': "тоже вас лайкнул(а)!",
+        'write_username': "Можете написать @{username}!",
+        'no_username': "У этого пользователя нет username.",
+    },
+    'kk': {
+        'welcome': "👋 Сәлеметсіз бе, {name}!\n\n💙 *Танысу ботына қош келдіңіз!*\n\nМұнда жаңа достар тауып, сөйлесе аласыз.",
+        'select_language': "🌍 Тілді таңдаңыз:",
+        'language_changed': "✅ Тіл өзгертілді: {lang}",
+        'limits_info': "\n\n📊 *Күнделікті лимиттер:*\n• Лайк: 25\n• Хабар: 10\n• Супер Лайк: 10\n\n🎁 *Лимитті арттыру:*\n5 адам қосыңыз → 1 апта лимитсіз\n10 адам қосыңыз → 1 ай лимитсіз",
+        'btn_webapp': "🌐 Веб-қосымша",
+        'btn_my_profile': "👤 Менің профилім",
+        'btn_search': "🔎 Іздеу",
+        'btn_group': "👥 Топқа қосылу",
+        'btn_change_lang': "🌍 Тілді өзгерту",
+        'no_profile': "❌ Сіз әлі анкета толтырмадыңыз. Алдымен профиліңізді толтырыңыз.",
+        'search_who': "Кім іздеп жатырсыз?\n\nЕр адам, әйел немесе бәрін таңдаңыз.\nНемесе жұлдызнама бойынша іздеңіз! ⭐",
+        'btn_male': "👨 Ер адам",
+        'btn_female': "👩 Әйел",
+        'btn_all': "🔄 Бәрі",
+        'btn_zodiac_compat': "⭐ Жұлдызнама бойынша іздеу",
+        'btn_back': "⬅ Артқа",
+        'btn_skip': "❌ Өткізіп жіберу",
+        'btn_write': "✉️ Жазу",
+        'btn_like': "❤️ Лайк",
+        'btn_super_like': "⭐ Супер Лайк",
+        'btn_block': "🚫 Блок",
+        'no_candidates': "😔 Ешкім табылмады.",
+        'all_viewed': "✅ Барлық кандидаттар қаралды. Қайта іздеп көріңіз.",
+        'search_counter': "\n\n🔎 {current}/{total} кандидат",
+        'no_zodiac': "❌ Жұлдызнамаңыз көрсетілмеген.\nАлдымен анкетаны толтырыңыз.",
+        'zodiac_not_recognized': "❌ Жұлдызнамаңыз танылмады. Анкетаны жаңартыңыз.",
+        'your_zodiac': "⭐ Сіздің жұлдызнамаңыз: *{sign}*\n\nҮйлесімді жұлдызнамалар:\n{compat}\n\nКім іздегіңіз келеді?",
+        'no_zodiac_match': "😔 Жұлдызнама бойынша ешкім табылмады.",
+        'no_results': "😔 Ешкім табылмады. Кейінірек қайталаңыз.",
+        'searching': "Ізделуде...",
+        'like_sent': "💙 Лайк жіберілді!",
+        'match': "🎉 Сәйкестік! {name} де сізді ұнатты!\n\nЕнді сөйлесе аласыз.",
+        'like_notify': "💌 {name} сізді лайк етті!\n\nВеб-қосымшадағы Чат бөлімін тексеріңіз.",
+        'super_like_sent': "⭐ Супер Лайк жіберілді!",
+        'super_like_match': "⭐ Супер Лайк Сәйкестік! {name} де сізді ұнатты!\n\nЕнді сөйлесе аласыз.",
+        'super_like_notify': "⭐ {name} сізге Супер Лайк жіберді!\n\nВеб-қосымшадағы Чат бөлімін тексеріңіз.",
+        'blocked': "🚫 Пайдаланушы бұғатталды.",
+        'need_like_first': "❌ Алдымен лайк жіберу керек!",
+        'send_message_text': "💬 Хабар мәтінін жазыңыз.",
+        'message_sent': "✅ Хабар жіберілді!",
+        'empty_message': "❌ Бос хабар жіберуге болмайды.",
+        'new_message': "💬 {name} жаңа хабар:\n{text}",
+        'profile_saved': "✅ *Анкетаңыз сақталды!*\n\nЕнді іздеу арқылы жаңа достар табыңыз. 🔍",
+        'save_error': "❌ Қате орын алды. Қайталап көріңіз.",
+        'limit_exceeded_likes': "❌ Күнделікті лайк лимиті бітті!\n5 дос қосыңыз → 1 апта лимитсіз, 10 дос → 1 ай лимитсіз.",
+        'limit_exceeded_messages': "❌ Күнделікті хабар лимиті бітті!\n5 дос қосыңыз → 1 апта лимитсіз, 10 дос → 1 ай лимитсіз.",
+        'limit_exceeded_super': "❌ Күнделікті Супер Лайк лимиті бітті!\n5 дос қосыңыз → 1 апта лимитсіз, 10 дос → 1 ай лимитсіз.",
+        'limit_info_long': "❌ Күнделікті лимит бітті!\n\n📊 Лимиттер:\n• Лайк: 25\n• Хабар: 10\n• Супер Лайк: 10\n\n🎁 Арттыру:\n5 адам → 1 апта лимитсіз\n10 адам → 1 ай лимитсіз\n\nНемесе ертең жаңа лимит.",
+        'unlimited_access': "\n✅ *Лимитсіз қолдану*",
+        'daily_limits': "\n📊 *Күнделікті лимиттер:*\n• Лайк: {likes}/25\n• Хабар: {messages}/10\n• Супер Лайк: {super_likes}/10",
+        'gender_male': "Ер адам",
+        'gender_female': "Әйел",
+        'age': "Жас",
+        'city': "Қала",
+        'zodiac': "Жұлдызнама",
+        'about': "Мен туралы",
+        'goals': "Мақсаттар",
+        'interests': "Қызығушылықтар",
+        'not_specified': "көрсетілмеген",
+        'searching_zodiac': "Жұлдызнама бойынша ізделуде...",
+        'main_menu': "Негізгі мәзір:",
+        'group_invite_success': "🎉 *Құттықтаймыз!*\n\n*{name}* топқа қосылды!\n\n{msg}",
+        'like_accepted': "🎉 *{name}* лайкіңізді қабылдады!\n\n💬 Енді Веб-қосымшадағы Чат арқылы сөйлесіңіз.",
+        'chat_started': "✅ Сіз *{name}* бен сөйлесе бастадыңыз!",
+        'rejected': "❌ *{name}* сізді қабылдамады.\n\nКейінірек қайталаңыз.",
+        'like_not_found': "Лайк табылмады",
+        'super_like_label': "⭐ *Супер Лайк Сәйкестік!* ",
+        'match_label': "🎉 *Сәйкестік!* ",
+        'super_like_note': "\n\n{sticker} Сізге Супер Лайк жіберілді.",
+        'super_like_note_default': "\n\nСізге Супер Лайк жіберілді.",
+        'pressed_super_like': "Супер Лайк жіберді!",
+        'pressed_like': "де сізді ұнатты!",
+        'write_username': "@{username} жазуға болады!",
+        'no_username': "Бұл пайдаланушының username жоқ.",
+    },
+    'ky': {
+        'welcome': "👋 Саламатсызбы, {name}!\n\n💙 *Таанышу ботуна кош келиңиз!*\n\nБул жерде жаңы досторду таап, баарлаша аласыз.",
+        'select_language': "🌍 Тилди тандаңыз:",
+        'language_changed': "✅ Тил өзгөртүлдү: {lang}",
+        'limits_info': "\n\n📊 *Күндөлүк лимиттер:*\n• Лайк: 25\n• Билдирүү: 10\n• Супер Лайк: 10\n\n🎁 *Лимитти көбөйтүү:*\n5 адам кошуңуз → 1 апта лимитсиз\n10 адам кошуңуз → 1 ай лимитсиз",
+        'btn_webapp': "🌐 Веб-тиркеме",
+        'btn_my_profile': "👤 Менин профилим",
+        'btn_search': "🔎 Издөө",
+        'btn_group': "👥 Топко кошулуу",
+        'btn_change_lang': "🌍 Тилди өзгөртүү",
+        'no_profile': "❌ Сиз али анкета толтура элексиз. Алгач профилиңизди толтуруңуз.",
+        'search_who': "Кимди издеп жатасыз?\n\nЭркек, аял же баарын тандаңыз.\nЖе жылдызнама боюнча издеңиз! ⭐",
+        'btn_male': "👨 Эркек",
+        'btn_female': "👩 Аял",
+        'btn_all': "🔄 Баары",
+        'btn_zodiac_compat': "⭐ Жылдызнама боюнча издөө",
+        'btn_back': "⬅ Артка",
+        'btn_skip': "❌ Өткөрүп жиберүү",
+        'btn_write': "✉️ Жазуу",
+        'btn_like': "❤️ Лайк",
+        'btn_super_like': "⭐ Супер Лайк",
+        'btn_block': "🚫 Блок",
+        'no_candidates': "😔 Эч ким табылбады.",
+        'all_viewed': "✅ Бардык талапкерлер каралды. Кайра издеп көрүңүз.",
+        'search_counter': "\n\n🔎 {current}/{total} талапкер",
+        'no_zodiac': "❌ Жылдызнамаңыз көрсөтүлгөн эмес.\nАлгач анкетаны толтуруңуз.",
+        'zodiac_not_recognized': "❌ Жылдызнамаңыз таанылбады. Анкетаны жаңыртыңыз.",
+        'your_zodiac': "⭐ Сиздин жылдызнама: *{sign}*\n\nШайкеш жылдызнамалар:\n{compat}\n\nКимди издегиңиз келет?",
+        'no_zodiac_match': "😔 Жылдызнама боюнча эч ким табылбады.",
+        'no_results': "😔 Эч ким табылбады. Кийинчерээк кайталаңыз.",
+        'searching': "Изделүүдө...",
+        'like_sent': "💙 Лайк жөнөтүлдү!",
+        'match': "🎉 Шайкештик! {name} да сизди жактырды!\n\nЭми баарлаша аласыз.",
+        'like_notify': "💌 {name} сизди лайк кылды!\n\nВеб-тиркемедеги Чат бөлүмүн текшериңиз.",
+        'super_like_sent': "⭐ Супер Лайк жөнөтүлдү!",
+        'super_like_match': "⭐ Супер Лайк Шайкештик! {name} да сизди жактырды!\n\nЭми баарлаша аласыз.",
+        'super_like_notify': "⭐ {name} сизге Супер Лайк жөнөттү!\n\nВеб-тиркемедеги Чат бөлүмүн текшериңиз.",
+        'blocked': "🚫 Колдонуучу блоктолду.",
+        'need_like_first': "❌ Алгач лайк жөнөтүү керек!",
+        'send_message_text': "💬 Билдирүү текстин жазыңыз.",
+        'message_sent': "✅ Билдирүү жөнөтүлдү!",
+        'empty_message': "❌ Бош билдирүү жөнөтүүгө болбойт.",
+        'new_message': "💬 {name} жаңы билдирүү:\n{text}",
+        'profile_saved': "✅ *Анкетаңыз сакталды!*\n\nЭми издөө аркылуу жаңы досторду табыңыз. 🔍",
+        'save_error': "❌ Ката кетти. Кайталап көрүңүз.",
+        'limit_exceeded_likes': "❌ Күндөлүк лайк лимити бүттү!\n5 дос кошуңуз → 1 апта лимитсиз, 10 дос → 1 ай лимитсиз.",
+        'limit_exceeded_messages': "❌ Күндөлүк билдирүү лимити бүттү!\n5 дос кошуңуз → 1 апта лимитсиз, 10 дос → 1 ай лимитсиз.",
+        'limit_exceeded_super': "❌ Күндөлүк Супер Лайк лимити бүттү!\n5 дос кошуңуз → 1 апта лимитсиз, 10 дос → 1 ай лимитсиз.",
+        'limit_info_long': "❌ Күндөлүк лимит бүттү!\n\n📊 Лимиттер:\n• Лайк: 25\n• Билдирүү: 10\n• Супер Лайк: 10\n\n🎁 Көбөйтүү:\n5 адам → 1 апта лимитсиз\n10 адам → 1 ай лимитсиз\n\nЖе эртең жаңы лимит.",
+        'unlimited_access': "\n✅ *Лимитсиз колдонуу*",
+        'daily_limits': "\n📊 *Күндөлүк лимиттер:*\n• Лайк: {likes}/25\n• Билдирүү: {messages}/10\n• Супер Лайк: {super_likes}/10",
+        'gender_male': "Эркек",
+        'gender_female': "Аял",
+        'age': "Жаш",
+        'city': "Шаар",
+        'zodiac': "Жылдызнама",
+        'about': "Мен жөнүндө",
+        'goals': "Максаттар",
+        'interests': "Кызыгуулар",
+        'not_specified': "көрсөтүлгөн эмес",
+        'searching_zodiac': "Жылдызнама боюнча изделүүдө...",
+        'main_menu': "Негизги меню:",
+        'group_invite_success': "🎉 *Куттуктайбыз!*\n\n*{name}* топко кошулду!\n\n{msg}",
+        'like_accepted': "🎉 *{name}* лайкиңизди кабыл алды!\n\n💬 Эми Веб-тиркемедеги Чат аркылуу баарлашыңыз.",
+        'chat_started': "✅ Сиз *{name}* менен баарлаша баштадыңыз!",
+        'rejected': "❌ *{name}* сизди кабыл албады.\n\nКийинчерээк кайталаңыз.",
+        'like_not_found': "Лайк табылбады",
+        'super_like_label': "⭐ *Супер Лайк Шайкештик!* ",
+        'match_label': "🎉 *Шайкештик!* ",
+        'super_like_note': "\n\n{sticker} Сизге Супер Лайк жөнөтүлдү.",
+        'super_like_note_default': "\n\nСизге Супер Лайк жөнөтүлдү.",
+        'pressed_super_like': "Супер Лайк жөнөттү!",
+        'pressed_like': "да сизди жактырды!",
+        'write_username': "@{username} жазсаңыз болот!",
+        'no_username': "Бул колдонуучунун username жок.",
+    },
+    'kaa': {
+        'welcome': "👋 Sálem, {name}!\n\n💙 *Tanısıw botına xosh kelipsiz!*\n\nBul jerde jańa dostlar tabıp, sóylesse alasız.",
+        'select_language': "🌍 Tildi tańlań:",
+        'language_changed': "✅ Til ózgeritildi: {lang}",
+        'limits_info': "\n\n📊 *Kúndelik limitler:*\n• Layk: 25\n• Xabar: 10\n• Super Layk: 10\n\n🎁 *Limitti arttırıw:*\n5 adam qosıń → 1 hápte limitsiz\n10 adam qosıń → 1 ay limitsiz",
+        'btn_webapp': "🌐 Veb-qosımsha",
+        'btn_my_profile': "👤 Meniń profilim",
+        'btn_search': "🔎 Izlew",
+        'btn_group': "👥 Topqa qosılıw",
+        'btn_change_lang': "🌍 Tildi ózgertiw",
+        'no_profile': "❌ Siz áli anketa toldırmagansız. Aldıńızdan profilińizdi toldırıń.",
+        'search_who': "Kimdi izlep atırsız?\n\nEr adam, hayal yamasa bárin tańlań.\nYamasa juldıznama boyınsha izleni! ⭐",
+        'btn_male': "👨 Er adam",
+        'btn_female': "👩 Hayal",
+        'btn_all': "🔄 Bári",
+        'btn_zodiac_compat': "⭐ Juldıznama boyınsha izlew",
+        'btn_back': "⬅ Artqa",
+        'btn_skip': "❌ Ótkizip jiberiw",
+        'btn_write': "✉️ Jazıw",
+        'btn_like': "❤️ Layk",
+        'btn_super_like': "⭐ Super Layk",
+        'btn_block': "🚫 Blok",
+        'no_candidates': "😔 Eshkim tabılmadı.",
+        'all_viewed': "✅ Barlıq kandidatlar qaraldı. Qayta izlep kóriń.",
+        'search_counter': "\n\n🔎 {current}/{total} kandidat",
+        'no_zodiac': "❌ Juldıznamańız kórsetilmegen.\nAldıńızdan anketani toldırıń.",
+        'zodiac_not_recognized': "❌ Juldıznamańız tanılmadı. Anketani jańalań.",
+        'your_zodiac': "⭐ Siziń juldıznamańız: *{sign}*\n\nSáykes juldıznamalar:\n{compat}\n\nKimdi izlegińiz keledi?",
+        'no_zodiac_match': "😔 Juldıznama boyınsha eshkim tabılmadı.",
+        'no_results': "😔 Eshkim tabılmadı. Keyinirek qaytalań.",
+        'searching': "Izleniwde...",
+        'like_sent': "💙 Layk jiberildi!",
+        'match': "🎉 Sáykeslik! {name} de sizdi jaqtırdı!\n\nEndi sóylesse alasız.",
+        'like_notify': "💌 {name} sizdi layk etti!\n\nVeb-qosımshadaǵı Chat bólimin tekseriń.",
+        'super_like_sent': "⭐ Super Layk jiberildi!",
+        'super_like_match': "⭐ Super Layk Sáykeslik! {name} de sizdi jaqtırdı!\n\nEndi sóylesse alasız.",
+        'super_like_notify': "⭐ {name} sizge Super Layk jiberdi!\n\nVeb-qosımshadaǵı Chat bólimin tekseriń.",
+        'blocked': "🚫 Paydalanıwşı bloklanǵan.",
+        'need_like_first': "❌ Aldıńızdan layk jiberiw kerek!",
+        'send_message_text': "💬 Xabar mátnin jazıń.",
+        'message_sent': "✅ Xabar jiberildi!",
+        'empty_message': "❌ Bos xabar jiberiwge bolmaydı.",
+        'new_message': "💬 {name} jańa xabar:\n{text}",
+        'profile_saved': "✅ *Anketańız saqlandı!*\n\nEndi izlew arqalı jańa dostlar tabıń. 🔍",
+        'save_error': "❌ Qátelik boldı. Qaytalap kóriń.",
+        'limit_exceeded_likes': "❌ Kúndelik layk limiti túgedi!\n5 dos qosıń → 1 hápte limitsiz, 10 dos → 1 ay limitsiz.",
+        'limit_exceeded_messages': "❌ Kúndelik xabar limiti túgedi!\n5 dos qosıń → 1 hápte limitsiz, 10 dos → 1 ay limitsiz.",
+        'limit_exceeded_super': "❌ Kúndelik Super Layk limiti túgedi!\n5 dos qosıń → 1 hápte limitsiz, 10 dos → 1 ay limitsiz.",
+        'limit_info_long': "❌ Kúndelik limiti túgedi!\n\n📊 Limitler:\n• Layk: 25\n• Xabar: 10\n• Super Layk: 10\n\n🎁 Arttırıw:\n5 adam → 1 hápte limitsiz\n10 adam → 1 ay limitsiz\n\nYamasa erteń jańa limit.",
+        'unlimited_access': "\n✅ *Limitsiz paydalanıw*",
+        'daily_limits': "\n📊 *Kúndelik limitler:*\n• Layk: {likes}/25\n• Xabar: {messages}/10\n• Super Layk: {super_likes}/10",
+        'gender_male': "Er adam",
+        'gender_female': "Hayal",
+        'age': "Jas",
+        'city': "Qala",
+        'zodiac': "Juldıznama",
+        'about': "Men haqqımda",
+        'goals': "Maqsetler",
+        'interests': "Qızıǵıwshılıqlar",
+        'not_specified': "kórsetilmegen",
+        'searching_zodiac': "Juldıznama boyınsha izleniwde...",
+        'main_menu': "Tiykarǵı menyu:",
+        'group_invite_success': "🎉 *Qutlıqlaymız!*\n\n*{name}* topqa qosıldı!\n\n{msg}",
+        'like_accepted': "🎉 *{name}* laykińizdi qabıl aldı!\n\n💬 Endi Veb-qosımshadaǵı Chat arqalı sólesiń.",
+        'chat_started': "✅ Siz *{name}* menen sóylesiw basladıńız!",
+        'rejected': "❌ *{name}* sizdi qabıl almadı.\n\nKeyinirek qaytalań.",
+        'like_not_found': "Layk tabılmadı",
+        'super_like_label': "⭐ *Super Layk Sáykeslik!* ",
+        'match_label': "🎉 *Sáykeslik!* ",
+        'super_like_note': "\n\n{sticker} Sizge Super Layk jiberildi.",
+        'super_like_note_default': "\n\nSizge Super Layk jiberildi.",
+        'pressed_super_like': "Super Layk jiberdi!",
+        'pressed_like': "de sizdi jaqtırdı!",
+        'write_username': "@{username} jazsańız boladı!",
+        'no_username': "Bul paydalanıwshınıń username joq.",
+    },
+    'tg': {
+        'welcome': "👋 Салом, {name}!\n\n💙 *Ба боти шиносоӣ хуш омадед!*\n\nДар ин ҷо шумо метавонед дӯстони нав пайдо кунед ва гуфтугӯ кунед.",
+        'select_language': "🌍 Лутфан забонро интихоб кунед:",
+        'language_changed': "✅ Забон иваз шуд: {lang}",
+        'limits_info': "\n\n📊 *Лимитҳои ҳаррӯза:*\n• Лайк: 25\n• Паём: 10\n• Супер Лайк: 10\n\n🎁 *Лимитро зиёд кардан:*\n5 нафар даъват кунед → 1 ҳафта бе лимит\n10 нафар даъват кунед → 1 моҳ бе лимит",
+        'btn_webapp': "🌐 Веб-барнома",
+        'btn_my_profile': "👤 Профили ман",
+        'btn_search': "🔎 Ҷустуҷӯ",
+        'btn_group': "👥 Ба гурӯҳ ҳамроҳ шудан",
+        'btn_change_lang': "🌍 Забонро иваз кардан",
+        'no_profile': "❌ Шумо ҳанӯз анкета пур накардаед. Лутфан аввал профилатонро пур кунед.",
+        'search_who': "Киро ҷустуҷӯ мекунед?\n\nМард, зан ё ҳамаро интихоб кунед.\nЁ аз рӯи бурҷ ҷустуҷӯ кунед! ⭐",
+        'btn_male': "👨 Мард",
+        'btn_female': "👩 Зан",
+        'btn_all': "🔄 Ҳама",
+        'btn_zodiac_compat': "⭐ Ҷустуҷӯ аз рӯи бурҷ",
+        'btn_back': "⬅ Бозгашт",
+        'btn_skip': "❌ Гузаронидан",
+        'btn_write': "✉️ Навиштан",
+        'btn_like': "❤️ Лайк",
+        'btn_super_like': "⭐ Супер Лайк",
+        'btn_block': "🚫 Блок",
+        'no_candidates': "😔 Ҳеҷ кас ёфт нашуд.",
+        'all_viewed': "✅ Ҳама номзадҳо дида шуданд. Боз ҷустуҷӯ кунед.",
+        'search_counter': "\n\n🔎 Номзади {current} аз {total}",
+        'no_zodiac': "❌ Бурҷатон нишон дода нашудааст.\nЛутфан аввал анкета пур кунед.",
+        'zodiac_not_recognized': "❌ Бурҷатон шинохта нашуд. Анкетаро нав кунед.",
+        'your_zodiac': "⭐ Бурҷи шумо: *{sign}*\n\nБурҷҳои мувофиқ:\n{compat}\n\nКиро ҷустуҷӯ кардан мехоҳед?",
+        'no_zodiac_match': "😔 Аз рӯи бурҷ ҳеҷ кас ёфт нашуд.",
+        'no_results': "😔 Ҳеҷ кас ёфт нашуд. Баъдтар боз кӯшиш кунед.",
+        'searching': "Ҷустуҷӯ...",
+        'like_sent': "💙 Лайк фиристода шуд!",
+        'match': "🎉 Мувофиқат! {name} ҳам шуморо лайк кард!\n\nАкнун метавонед гуфтугӯ кунед.",
+        'like_notify': "💌 {name} шуморо лайк кард!\n\nБахши Чат дар Веб-барномаро санҷед.",
+        'super_like_sent': "⭐ Супер Лайк фиристода шуд!",
+        'super_like_match': "⭐ Супер Лайк Мувофиқат! {name} ҳам шуморо лайк кард!\n\nАкнун метавонед гуфтугӯ кунед.",
+        'super_like_notify': "⭐ {name} ба шумо Супер Лайк фиристод!\n\nБахши Чат дар Веб-барномаро санҷед.",
+        'blocked': "🚫 Истифодабаранда блок карда шуд.",
+        'need_like_first': "❌ Аввал лайк фиристодан лозим аст!",
+        'send_message_text': "💬 Матни паёмро нависед.",
+        'message_sent': "✅ Паём фиристода шуд!",
+        'empty_message': "❌ Паёми холӣ фиристодан мумкин нест.",
+        'new_message': "💬 {name} паёми нав:\n{text}",
+        'profile_saved': "✅ *Анкетатон нигоҳ дошта шуд!*\n\nАкнун тавассути ҷустуҷӯ дӯстони нав пайдо кунед. 🔍",
+        'save_error': "❌ Хатогӣ рӯй дод. Боз кӯшиш кунед.",
+        'limit_exceeded_likes': "❌ Лимити лайки ҳаррӯза тамом шуд!\n5 дӯст даъват кунед → 1 ҳафта бе лимит, 10 дӯст → 1 моҳ бе лимит.",
+        'limit_exceeded_messages': "❌ Лимити паёми ҳаррӯза тамом шуд!\n5 дӯст даъват кунед → 1 ҳафта бе лимит, 10 дӯст → 1 моҳ бе лимит.",
+        'limit_exceeded_super': "❌ Лимити Супер Лайки ҳаррӯза тамом шуд!\n5 дӯст даъват кунед → 1 ҳафта бе лимит, 10 дӯст → 1 моҳ бе лимит.",
+        'limit_info_long': "❌ Лимити ҳаррӯза тамом шуд!\n\n📊 Лимитҳо:\n• Лайк: 25\n• Паём: 10\n• Супер Лайк: 10\n\n🎁 Зиёд кардан:\n5 нафар → 1 ҳафта бе лимит\n10 нафар → 1 моҳ бе лимит\n\nЁ фардо лимити нав.",
+        'unlimited_access': "\n✅ *Дастрасии бе лимит*",
+        'daily_limits': "\n📊 *Лимитҳои ҳаррӯза:*\n• Лайк: {likes}/25\n• Паём: {messages}/10\n• Супер Лайк: {super_likes}/10",
+        'gender_male': "Мард",
+        'gender_female': "Зан",
+        'age': "Син",
+        'city': "Шаҳр",
+        'zodiac': "Бурҷ",
+        'about': "Дар бораи ман",
+        'goals': "Мақсадҳо",
+        'interests': "Шавқҳо",
+        'not_specified': "нишон дода нашудааст",
+        'searching_zodiac': "Ҷустуҷӯ аз рӯи бурҷ...",
+        'main_menu': "Менюи асосӣ:",
+        'group_invite_success': "🎉 *Табрик!*\n\n*{name}* ба гурӯҳ ҳамроҳ шуд!\n\n{msg}",
+        'like_accepted': "🎉 *{name}* лайки шуморо қабул кард!\n\n💬 Акнун тавассути Чати Веб-барнома гуфтугӯ кунед.",
+        'chat_started': "✅ Шумо бо *{name}* гуфтугӯ оғоз кардед!",
+        'rejected': "❌ *{name}* шуморо рад кард.\n\nБаъдтар боз кӯшиш кунед.",
+        'like_not_found': "Лайк ёфт нашуд",
+        'super_like_label': "⭐ *Супер Лайк Мувофиқат!* ",
+        'match_label': "🎉 *Мувофиқат!* ",
+        'super_like_note': "\n\n{sticker} Ба шумо Супер Лайк фиристода шуд.",
+        'super_like_note_default': "\n\nБа шумо Супер Лайк фиристода шуд.",
+        'pressed_super_like': "Супер Лайк фиристод!",
+        'pressed_like': "ҳам шуморо лайк кард!",
+        'write_username': "Метавонед ба @{username} нависед!",
+        'no_username': "Ин истифодабаранда username надорад.",
+    },
+}
+
+
+def t(lang, key, **kwargs):
+    """Tarjima olish"""
+    if lang not in T:
+        lang = 'uz'
+    text = T[lang].get(key, T['uz'].get(key, key))
+    if kwargs:
+        try:
+            text = text.format(**kwargs)
+        except Exception:
+            pass
+    return text
+
+
+# ========== BURJ SOZLAMALARI ==========
 ZODIAC_SIGNS = {
     "qoy": ("Qo'y", "♈"),
     "buzoq": ("Buzoq", "♉"),
@@ -40,117 +522,41 @@ ZODIAC_SIGNS = {
 }
 
 ZODIAC_COMPATIBILITY = {
-    "qoy": {
-        "mos": ["arslon", "egizak", "oqotar"],
-        "qiyin": ["qisqichbaqa", "chayon", "baliq"]
-    },
-    "buzoq": {
-        "mos": ["sunbula", "qisqichbaqa", "tog_echkisi"],
-        "qiyin": ["egizak", "oqotar", "qovga"]
-    },
-    "egizak": {
-        "mos": ["qoy", "tarozi", "qovga"],
-        "qiyin": ["buzoq", "chayon", "tog_echkisi"]
-    },
-    "qisqichbaqa": {
-        "mos": ["buzoq", "baliq", "chayon"],
-        "qiyin": ["qoy", "egizak", "oqotar"]
-    },
-    "arslon": {
-        "mos": ["qoy", "egizak", "tarozi"],
-        "qiyin": ["buzoq", "tog_echkisi", "baliq"]
-    },
-    "sunbula": {
-        "mos": ["buzoq", "tog_echkisi", "chayon"],
-        "qiyin": ["egizak", "arslon", "oqotar"]
-    },
-    "tarozi": {
-        "mos": ["egizak", "arslon", "qovga"],
-        "qiyin": ["chayon", "qisqichbaqa", "tog_echkisi"]
-    },
-    "chayon": {
-        "mos": ["qisqichbaqa", "baliq", "buzoq"],
-        "qiyin": ["egizak", "qoy", "tarozi"]
-    },
-    "oqotar": {
-        "mos": ["qoy", "arslon", "qovga"],
-        "qiyin": ["buzoq", "qisqichbaqa", "tog_echkisi"]
-    },
-    "tog_echkisi": {
-        "mos": ["buzoq", "sunbula", "chayon"],
-        "qiyin": ["egizak", "tarozi", "oqotar"]
-    },
-    "qovga": {
-        "mos": ["oqotar", "egizak", "tarozi"],
-        "qiyin": ["buzoq", "chayon", "qisqichbaqa"]
-    },
-    "baliq": {
-        "mos": ["buzoq", "qisqichbaqa", "chayon"],
-        "qiyin": ["qoy", "egizak", "arslon"]
-    }
+    "qoy": {"mos": ["arslon", "egizak", "oqotar"], "qiyin": ["qisqichbaqa", "chayon", "baliq"]},
+    "buzoq": {"mos": ["sunbula", "qisqichbaqa", "tog_echkisi"], "qiyin": ["egizak", "oqotar", "qovga"]},
+    "egizak": {"mos": ["qoy", "tarozi", "qovga"], "qiyin": ["buzoq", "chayon", "tog_echkisi"]},
+    "qisqichbaqa": {"mos": ["buzoq", "baliq", "chayon"], "qiyin": ["qoy", "egizak", "oqotar"]},
+    "arslon": {"mos": ["qoy", "egizak", "tarozi"], "qiyin": ["buzoq", "tog_echkisi", "baliq"]},
+    "sunbula": {"mos": ["buzoq", "tog_echkisi", "chayon"], "qiyin": ["egizak", "arslon", "oqotar"]},
+    "tarozi": {"mos": ["egizak", "arslon", "qovga"], "qiyin": ["chayon", "qisqichbaqa", "tog_echkisi"]},
+    "chayon": {"mos": ["qisqichbaqa", "baliq", "buzoq"], "qiyin": ["egizak", "qoy", "tarozi"]},
+    "oqotar": {"mos": ["qoy", "arslon", "qovga"], "qiyin": ["buzoq", "qisqichbaqa", "tog_echkisi"]},
+    "tog_echkisi": {"mos": ["buzoq", "sunbula", "chayon"], "qiyin": ["egizak", "tarozi", "oqotar"]},
+    "qovga": {"mos": ["oqotar", "egizak", "tarozi"], "qiyin": ["buzoq", "chayon", "qisqichbaqa"]},
+    "baliq": {"mos": ["buzoq", "qisqichbaqa", "chayon"], "qiyin": ["qoy", "egizak", "arslon"]},
 }
 
-# Anketa saqlangan burj nomidan kalit kodga mapping
-# index.html dagi burj nomlari => ZODIAC_SIGNS kalitlari
 ZODIAC_NAME_TO_KEY = {
-    "qoy": "qoy",
-    "qo'y": "qoy",
-    "qo`y": "qoy",
-    "qoy (aries)": "qoy",
-    "aries": "qoy",
-    "buzoq": "buzoq",
-    "buqa": "buzoq",
-    "buzoq (taurus)": "buzoq",
-    "taurus": "buzoq",
-    "egizak": "egizak",
-    "egizaklar": "egizak",
-    "egizaklar (gemini)": "egizak",
-    "gemini": "egizak",
-    "qisqichbaqa": "qisqichbaqa",
-    "qisqichbaqa (cancer)": "qisqichbaqa",
-    "cancer": "qisqichbaqa",
-    "arslon": "arslon",
-    "sher": "arslon",
-    "sher (leo)": "arslon",
-    "leo": "arslon",
-    "sunbula": "sunbula",
-    "qiz": "sunbula",
-    "qiz (virgo)": "sunbula",
-    "virgo": "sunbula",
-    "tarozi": "tarozi",
-    "tarozi (libra)": "tarozi",
-    "libra": "tarozi",
-    "chayon": "chayon",
-    "chayonlar": "chayon",
-    "chayonlar (scorpio)": "chayon",
-    "scorpio": "chayon",
-    "oqotar": "oqotar",
-    "o'qotar": "oqotar",
-    "yoy": "oqotar",
-    "yoy (sagittarius)": "oqotar",
-    "sagittarius": "oqotar",
-    "tog echkisi": "tog_echkisi",
-    "tog' echkisi": "tog_echkisi",
-    "togʻ echkisi": "tog_echkisi",
-    "tog echkisi (capricorn)": "tog_echkisi",
-    "capricorn": "tog_echkisi",
-    "qovga": "qovga",
-    "qovg'a": "qovga",
-    "qovgʻa": "qovga",
-    "qovunchi": "qovga",
-    "qovunchi (aquarius)": "qovga",
-    "aquarius": "qovga",
-    "baliq": "baliq",
-    "baliq (pisces)": "baliq",
-    "pisces": "baliq",
+    "qoy": "qoy", "qo'y": "qoy", "qo`y": "qoy", "qoy (aries)": "qoy", "aries": "qoy",
+    "buzoq": "buzoq", "buqa": "buzoq", "buzoq (taurus)": "buzoq", "taurus": "buzoq",
+    "egizak": "egizak", "egizaklar": "egizak", "egizaklar (gemini)": "egizak", "gemini": "egizak",
+    "qisqichbaqa": "qisqichbaqa", "qisqichbaqa (cancer)": "qisqichbaqa", "cancer": "qisqichbaqa",
+    "arslon": "arslon", "sher": "arslon", "sher (leo)": "arslon", "leo": "arslon",
+    "sunbula": "sunbula", "qiz": "sunbula", "qiz (virgo)": "sunbula", "virgo": "sunbula",
+    "tarozi": "tarozi", "tarozi (libra)": "tarozi", "libra": "tarozi",
+    "chayon": "chayon", "chayonlar": "chayon", "chayonlar (scorpio)": "chayon", "scorpio": "chayon",
+    "oqotar": "oqotar", "o'qotar": "oqotar", "yoy": "oqotar", "yoy (sagittarius)": "oqotar", "sagittarius": "oqotar",
+    "tog echkisi": "tog_echkisi", "tog' echkisi": "tog_echkisi", "togʻ echkisi": "tog_echkisi",
+    "tog echkisi (capricorn)": "tog_echkisi", "capricorn": "tog_echkisi",
+    "qovga": "qovga", "qovg'a": "qovga", "qovgʻa": "qovga", "qovunchi": "qovga",
+    "qovunchi (aquarius)": "qovga", "aquarius": "qovga",
+    "baliq": "baliq", "baliq (pisces)": "baliq", "pisces": "baliq",
 }
 
 
 def normalize_zodiac_key(value: str) -> str | None:
-    """Burj nomini bir xil canonical kalitga olib keladi."""
     if not value:
         return None
-
     text = str(value)
     text = text.replace('’', "'").replace('`', "'").replace('ʻ', "'")
     text = text.replace('♈', '').replace('♉', '').replace('♊', '')
@@ -161,17 +567,14 @@ def normalize_zodiac_key(value: str) -> str | None:
     text = text.lower()
     text = ' '.join(text.split())
 
-    # To'liq kalit variantlari bilan tekshiramiz
     direct = ZODIAC_NAME_TO_KEY.get(text)
     if direct:
         return direct
 
-    # Agar old formatda bo'lsa, avval "qo'y" kabi variantlarni ham ko'rib chiqamiz
     alias = ZODIAC_NAME_TO_KEY.get(text.replace("'", ""))
     if alias:
         return alias
 
-    # To'liq nom bo'yicha qisman moslik
     for name, key in ZODIAC_NAME_TO_KEY.items():
         if text == name or text.startswith(name) or name.startswith(text):
             return key
@@ -180,23 +583,16 @@ def normalize_zodiac_key(value: str) -> str | None:
 
 
 def get_zodiac_key(zodiac_value: str) -> str | None:
-    """Burj nomidan kalit kodini qaytaradi."""
     return normalize_zodiac_key(zodiac_value)
+
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-
 search_sessions = {}
 pending_message_targets = {}
 
 
 def get_photo_input(user):
-    """Telegramda jo'natish uchun rasm manbasini qaytaradi.
-
-    Agar foydalanuvchining rasmi Telegram file_id sifatida saqlangan bo'lsa,
-    uni to'g'ridan-to'g'ri yuboradi. Agar faqat photo_base64 bo'lsa, uni
-    bytes ga aylantirib InputFile sifatida yuboradi.
-    """
     photo_file_id = user.get("photo_file_id")
     if photo_file_id:
         return photo_file_id
@@ -216,21 +612,40 @@ def get_photo_input(user):
         return None
 
 
-async def main_menu_keyboard():
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))],
-        [InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile")],
-        [InlineKeyboardButton(text="🔎 Qidirish", callback_data="start_search")],
-        [InlineKeyboardButton(text="👥 Guruhga qo'shilish", url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}")]
-    ])
-    return keyboard
+async def get_user_lang(user_id):
+    """Foydalanuvchi tilini olish"""
+    lang = await db.get_user_language(user_id)
+    return lang if lang in T else 'uz'
+
+
+async def language_keyboard():
+    """Til tanlash klaviaturasi"""
+    builder = InlineKeyboardBuilder()
+    for code, info in SUPPORTED_LANGUAGES.items():
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{info['flag']} {info['name']}",
+                callback_data=f"set_lang:{code}"
+            )
+        )
+    return builder.as_markup()
+
+
+async def main_menu_keyboard(lang='uz'):
+    """Asosiy menyu klaviaturasi"""
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_webapp'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_my_profile'), callback_data="show_profile"))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_search'), callback_data="start_search"))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_change_lang'), callback_data="change_language"))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_group'), url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}"))
+    return builder.as_markup()
 
 
 def get_city_region(city=''):
     value = str(city or '').lower().strip()
     if value in ('toshkent shahri', 'toshkent city'):
         return ''
-
     rules = [
         {'region': 'Andijon viloyati', 'terms': ['andijon', 'xonobod', 'asaka', 'qorasuv', 'baliqchi', 'buloqboshi', 'izboskan', 'jalaquduq', 'marhamat', 'oltinkoʻl', 'oltinkol', 'paxtaobod', 'shahrixon', 'ulugʻnor', 'ulugnor', 'xoʻjaobod', 'xojaobod', 'qoʻrgʻontepa', 'qorgontepa']},
         {'region': 'Buxoro viloyati', 'terms': ['buxoro', 'kogon', 'olot', 'vobkent', 'gijduvon', 'romitan', 'shofirkon', 'galaosiyo', 'gazli']},
@@ -261,39 +676,38 @@ def format_location_label(city=''):
     return city_text or 'Joy ko\'rsatilmagan'
 
 
-def format_user_card(user):
+def format_user_card(user, lang='uz'):
     gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
-    zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
+    zodiac_text = user.get("zodiac") or t(lang, 'not_specified')
     about_text = (user.get('about') or '').strip()
     interests = (user.get('interests') or [])[:5]
-    interests_text = ', '.join(interests) if interests else "ko'rsatilmagan"
+    interests_text = ', '.join(interests) if interests else t(lang, 'not_specified')
 
     lines = [
         f"{gender_icon} *{user['full_name']}*",
-        f"🎂 Yosh: {user['age']}",
-        f"📍 Shahar: {format_location_label(user.get('city'))}",
-        f"⭐ Burj: {zodiac_text}",
-        f"🎯 Qiziqishlar: {interests_text}",
+        f"🎂 {t(lang, 'age')}: {user['age']}",
+        f"📍 {t(lang, 'city')}: {format_location_label(user.get('city'))}",
+        f"⭐ {t(lang, 'zodiac')}: {zodiac_text}",
+        f"🎯 {t(lang, 'interests')}: {interests_text}",
     ]
     if about_text:
         lines.append('')
-        lines.append('📝 Men haqimda:')
+        lines.append(f"📝 {t(lang, 'about')}:")
         lines.append(about_text)
 
     return "\n".join(lines)
 
 
-async def send_candidate_card(message, user):
-    text = format_user_card(user)
+async def send_candidate_card(message, user, lang='uz'):
+    text = format_user_card(user, lang)
     photo = get_photo_input(user)
-
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{user['telegram_id']}"),
-        InlineKeyboardButton(text="🚫 Blok", callback_data=f"block_{user['telegram_id']}")
+        InlineKeyboardButton(text=t(lang, 'btn_like'), callback_data=f"like_{user['telegram_id']}"),
+        InlineKeyboardButton(text=t(lang, 'btn_block'), callback_data=f"block_{user['telegram_id']}")
     )
     builder.row(
-        InlineKeyboardButton(text="✉️ Yozish", callback_data=f"write_{user['telegram_id']}")
+        InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"write_{user['telegram_id']}")
     )
 
     if photo:
@@ -307,33 +721,32 @@ async def send_candidate_card(message, user):
         await message.answer(text, parse_mode="Markdown", reply_markup=builder.as_markup())
 
 
-async def show_search_candidate(chat, user_id, index):
+async def show_search_candidate(chat, user_id, index, lang='uz'):
     session = search_sessions.get(user_id, {})
     users = session.get('users', [])
     if not users:
-        await chat.answer('😔 Hech qanday nomzod topilmadi.')
+        await chat.answer(t(lang, 'no_candidates'))
         return
-
     if index >= len(users):
-        await chat.answer('✅ Barcha nomzodlar ko\'rib chiqildi. Qayta qidirish uchun menyudan yana urinib ko\'ring.')
+        await chat.answer(t(lang, 'all_viewed'))
         search_sessions.pop(user_id, None)
         return
 
     user = users[index]
-    text = format_user_card(user)
-    text += f"\n\n🔎 {index + 1}/{len(users)} ta nomzoddan hozirgi"
+    text = format_user_card(user, lang)
+    text += t(lang, 'search_counter', current=index + 1, total=len(users))
 
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="❤️ Like", callback_data=f"search_like:{user['telegram_id']}"),
-        InlineKeyboardButton(text="⭐ Super Like", callback_data=f"search_super_like:{user['telegram_id']}")
+        InlineKeyboardButton(text=t(lang, 'btn_like'), callback_data=f"search_like:{user['telegram_id']}"),
+        InlineKeyboardButton(text=t(lang, 'btn_super_like'), callback_data=f"search_super_like:{user['telegram_id']}")
     )
     builder.row(
-        InlineKeyboardButton(text="❌ O'tkazib yuborish", callback_data="search_skip"),
-        InlineKeyboardButton(text="💬 Xabar", callback_data=f"search_message:{user['telegram_id']}")
+        InlineKeyboardButton(text=t(lang, 'btn_skip'), callback_data="search_skip"),
+        InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"search_message:{user['telegram_id']}")
     )
     builder.row(
-        InlineKeyboardButton(text="⬅ Asosiy menyu", callback_data="show_main_menu")
+        InlineKeyboardButton(text=t(lang, 'btn_back'), callback_data="show_main_menu")
     )
 
     photo = get_photo_input(user)
@@ -351,13 +764,12 @@ async def show_search_candidate(chat, user_id, index):
     else:
         await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
 
+
 @dp.my_chat_member()
 async def handle_bot_join_group(update: types.ChatMemberUpdated):
-    """Bot guruhga qo'shilganda yoki guruh ma'lumotlari o'zgarganda"""
     if update.new_chat_member.user.id == (await bot.me()).id:
         if update.new_chat_member.status in ['member', 'administrator']:
             logger.info(f"Bot guruhga qo'shildi: {update.chat.id} - {update.chat.title}")
-            # Guruh ID sini config ga tekshirish
             if GROUP_CHAT_ID and update.chat.id == GROUP_CHAT_ID:
                 logger.info("Asosiy guruh topildi!")
         elif update.new_chat_member.status == 'left':
@@ -366,168 +778,223 @@ async def handle_bot_join_group(update: types.ChatMemberUpdated):
 
 @dp.chat_member()
 async def handle_new_group_member(update: types.ChatMemberUpdated):
-    """Guruhga yangi a'zo qo'shilganda"""
-    # Faqat asosiy guruh uchun
     if GROUP_CHAT_ID and update.chat.id != GROUP_CHAT_ID:
         return
-
     new_member = update.new_chat_member
     old_member = update.old_chat_member
 
-    # Yangi qo'shilgan a'zoni tekshirish
     if old_member.status in ['left', 'kicked'] and new_member.status in ['member', 'administrator']:
         invited_id = new_member.user.id
-
-        # Kim tomonidan qo'shilganini aniqlash (qo'shuvchi update.from_user)
         inviter_id = update.from_user.id if update.from_user else None
 
-        # Agar o'zi qo'shilgan bo'lsa (link orqali) inviter_id None bo'lishi mumkin
         if inviter_id and inviter_id != invited_id:
-            # Bu odam avval bot foydalanuvchisi ekanligini tekshirish
             user = await db.get_user(invited_id)
             if user:
-                # Guruhga qo'shishni qayd etish
                 success, msg = await db.record_group_invite(inviter_id, invited_id)
                 if success:
-                    # Inviter ga xabar yuborish
                     try:
                         inviter_data = await db.get_user(inviter_id)
                         if inviter_data:
+                            inviter_lang = await get_user_lang(inviter_id)
                             await bot.send_message(
                                 inviter_id,
-                                f"🎉 *Tabriklaymiz!*\n\n"
-                                f"*{new_member.user.first_name}* guruhga qo'shildi!\n\n"
-                                f"{msg}",
+                                t(inviter_lang, 'group_invite_success',
+                                  name=new_member.user.first_name, msg=msg),
                                 parse_mode="Markdown"
                             )
                     except Exception as e:
                         logger.error(f"Inviter notify error: {e}")
 
-        # Guruh a'zolari ro'yxatiga qo'shish
         await db.record_group_join(invited_id, inviter_id)
+
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
     args = message.text.split()
     telegram_id = message.from_user.id
 
-    # Referral tekshirish (bot orqali referral - endi faqat guruhga qo'shish uchun)
+    # Referral tekshirish
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
             referrer_id = int(args[1].replace("ref_", ""))
             if referrer_id != telegram_id:
-                # Endi bu faqat guruhga qo'shish uchun ishlatiladi
-                # Bot orqali referral tizimini olib tashladik
                 pass
         except Exception as e:
             logger.error(f"Referral error: {e}")
 
+    # Foydalanuvchi tilini tekshirish
+    lang = await get_user_lang(telegram_id)
     user = await db.get_user(telegram_id)
 
-    # Har bir tugma alohida qatorda - builder.row() ishlatiladi
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🌐 Web App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
-    builder.row(InlineKeyboardButton(text="👤 Mening anketam", callback_data="show_profile"))
-    builder.row(InlineKeyboardButton(text="🔎 Qidirish", callback_data="start_search"))
-    builder.row(InlineKeyboardButton(text="👥 Guruhga qo'shilish", url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}"))
+    # Agar til tanlanmagan bo'lsa (yangi foydalanuvchi)
+    if not user or not user.get('language') or user.get('language') == 'uz':
+        # Til tanlash menyusini ko'rsatish
+        await message.answer(
+            t('uz', 'select_language'),
+            reply_markup=await language_keyboard()
+        )
+        return
 
+    # Til tanlangan bo'lsa, asosiy menyu ko'rsatish
+    keyboard = await main_menu_keyboard(lang)
     await message.answer(
-        f"👋 Assalomu alaykum, {message.from_user.first_name}!\n\n"
-        "💙 *Do'stlik & Tanishuv Botiga xush kelibsiz!*\n\n"
-        "Bu yerda siz yangi do'stlar topishingiz, muloqot qilishingiz mumkin.\n\n"
-        "📋 *Kunlik limitlar:*\n"
-        "• Like: 25 ta\n"
-        "• Xabar yuborish: 10 ta\n"
-        "• Super Like: 10 ta\n\n"
-        "🎁 *Limitni oshirish:*\n"
-        "Guruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\n"
-        "Guruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\n"
-        "👇 Quyidagi tugma orqali guruhga qo'shiling va do'stlaringizni taklif qiling!",
+        t(lang, 'welcome', name=message.from_user.first_name) + t(lang, 'limits_info'),
         parse_mode="Markdown",
-        reply_markup=builder.as_markup()
+        reply_markup=keyboard
     )
 
-@dp.message(F.text == "👤 Mening anketam")
+
+@dp.callback_query(F.data.startswith("set_lang:"))
+async def set_language_callback(callback: types.CallbackQuery):
+    lang_code = callback.data.split(":", 1)[1]
+    if lang_code not in SUPPORTED_LANGUAGES:
+        await callback.answer("❌", show_alert=True)
+        return
+
+    await db.set_user_language(callback.from_user.id, lang_code)
+    lang_name = SUPPORTED_LANGUAGES[lang_code]['name']
+
+    await callback.answer(t(lang_code, 'language_changed', lang=lang_name), show_alert=True)
+
+    # Asosiy menyu ko'rsatish
+    keyboard = await main_menu_keyboard(lang_code)
+    await callback.message.edit_text(
+        t(lang_code, 'welcome', name=callback.from_user.first_name) + t(lang_code, 'limits_info'),
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+
+@dp.callback_query(F.data == "change_language")
+async def change_language_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer(
+        t(await get_user_lang(callback.from_user.id), 'select_language'),
+        reply_markup=await language_keyboard()
+    )
+
+
+@dp.message(F.text.in_([
+    "🌐 Web App", "🌐 Веб-приложение", "🌐 Veb-qosımsha", "🌐 Veb-qo'shımsha", "🌐 Veb-qosımsha", "🌐 Веб-барнома"
+]))
+async def webapp_button(message: types.Message):
+    lang = await get_user_lang(message.from_user.id)
+    await message.answer(
+        t(lang, 'btn_webapp'),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, 'btn_webapp'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))]
+        ])
+    )
+
+
+@dp.message(F.text.in_([
+    "👤 Mening anketam", "👤 Мой профиль", "👤 Meniń profilim", "👤 Meniń profilim", "👤 Meniń profilim", "👤 Профили ман"
+]))
 async def my_profile(message: types.Message):
-    user = await db.get_user(message.from_user.id)
+    await show_profile_handler(message)
+
+
+async def show_profile_handler(message_or_callback):
+    if isinstance(message_or_callback, types.CallbackQuery):
+        user_id = message_or_callback.from_user.id
+        send_func = message_or_callback.message.answer
+        send_photo = message_or_callback.message.answer_photo
+        await message_or_callback.answer()
+    else:
+        user_id = message_or_callback.from_user.id
+        send_func = message_or_callback.answer
+        send_photo = message_or_callback.answer_photo
+
+    lang = await get_user_lang(user_id)
+    user = await db.get_user(user_id)
     if not user:
-        await message.answer("❌ Siz hali anketa to'ldirmagansiz. Iltimos, avval anketangizni to'ldiring.")
+        await send_func(t(lang, 'no_profile'))
         return
 
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
-    goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
-    interests_text = ", ".join((user.get("interests") or [])[:5]) if user.get("interests") else "ko'rsatilmagan"
-    about_text = (user.get("about") or "").strip() or "ko'rsatilmagan"
-    zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
+    goals_text = ", ".join(user["goals"]) if user["goals"] else t(lang, 'not_specified')
+    interests_text = ", ".join((user.get("interests") or [])[:5]) if user.get("interests") else t(lang, 'not_specified')
+    about_text = (user.get("about") or "").strip() or t(lang, 'not_specified')
+    zodiac_text = user.get("zodiac") or t(lang, 'not_specified')
 
-    # Limit status
-    limit_status = await db.get_limit_status(message.from_user.id)
+    limit_status = await db.get_limit_status(user_id)
     if limit_status['unlimited']:
-        limit_text = "\n✅ *Limitsiz foydalanish*"
+        limit_text = t(lang, 'unlimited_access')
     else:
-        limit_text = f"\n📊 *Kunlik limitlar:*\n"
-        limit_text += f"• Like: {limit_status['likes_used']}/25\n"
-        limit_text += f"• Xabar: {limit_status['messages_used']}/10\n"
-        limit_text += f"• Super Like: {limit_status['super_likes_used']}/10"
+        limit_text = t(lang, 'daily_limits',
+                       likes=limit_status['likes_used'],
+                       messages=limit_status['messages_used'],
+                       super_likes=limit_status['super_likes_used'])
 
     text = (
         f"{gender_icon} *{user['full_name']}*\n"
-        f"🎂 Yosh: {user['age']}\n"
-        f"📍 Shahar: {format_location_label(user.get('city'))}\n"
-        f"⭐ Burj: {zodiac_text}\n"
-        f"📝 Men haqimda: {about_text}\n"
-        f"❤️ Maqsad: {goals_text}\n"
-        f"🎯 Qiziqishlar: {interests_text}"
+        f"🎂 {t(lang, 'age')}: {user['age']}\n"
+        f"📍 {t(lang, 'city')}: {format_location_label(user.get('city'))}\n"
+        f"⭐ {t(lang, 'zodiac')}: {zodiac_text}\n"
+        f"📝 {t(lang, 'about')}: {about_text}\n"
+        f"❤️ {t(lang, 'goals')}: {goals_text}\n"
+        f"🎯 {t(lang, 'interests')}: {interests_text}"
         f"{limit_text}"
     )
 
     photo = get_photo_input(user)
     if photo:
-        await message.answer_photo(photo, caption=text, parse_mode="Markdown")
+        await send_photo(photo, caption=text, parse_mode="Markdown")
     else:
-        await message.answer(text, parse_mode="Markdown")
+        await send_func(text, parse_mode="Markdown")
 
 
-@dp.callback_query(F.data == "start_search")
-async def start_search_callback(callback: types.CallbackQuery):
-    await callback.answer()
+@dp.message(F.text.in_([
+    "🔎 Qidirish", "🔎 Поиск", "🔎 Izlew", "🔎 Іздеу", "🔎 Izlew", "🔎 Ҷустуҷӯ"
+]))
+async def search_button(message: types.Message):
+    lang = await get_user_lang(message.from_user.id)
+    await start_search(message, lang)
+
+
+async def start_search(message_or_callback, lang='uz'):
+    if isinstance(message_or_callback, types.CallbackQuery):
+        await message_or_callback.answer()
+        send_func = message_or_callback.message.answer
+    else:
+        send_func = message_or_callback.answer
 
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="👨 Erkak", callback_data="search_gender:erkak"))
-    builder.add(InlineKeyboardButton(text="👩 Ayol", callback_data="search_gender:ayol"))
-    builder.add(InlineKeyboardButton(text="🔄 Barchasi", callback_data="search_gender:all"))
-    builder.row(InlineKeyboardButton(text="⭐ Burjga mos qidirish", callback_data="search_zodiac_compat"))
-    builder.row(InlineKeyboardButton(text="⬅ Orqaga", callback_data="show_main_menu"))
+    builder.add(InlineKeyboardButton(text=t(lang, 'btn_male'), callback_data="search_gender:erkak"))
+    builder.add(InlineKeyboardButton(text=t(lang, 'btn_female'), callback_data="search_gender:ayol"))
+    builder.add(InlineKeyboardButton(text=t(lang, 'btn_all'), callback_data="search_gender:all"))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_zodiac_compat'), callback_data="search_zodiac_compat"))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_back'), callback_data="show_main_menu"))
 
-    await callback.message.answer(
-        "Qidirish uchun kimni izlayapsiz?\n\n"
-        "Erkak, ayol yoki barchasini tanlang.\n"
-        "Yoki burjingizga mos odamlarni qidiring! ⭐",
+    await send_func(
+        t(lang, 'search_who'),
         reply_markup=builder.as_markup()
     )
 
 
+@dp.callback_query(F.data == "start_search")
+async def start_search_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
+    await start_search(callback, lang)
+
+
 @dp.callback_query(F.data == "search_zodiac_compat")
 async def search_zodiac_compat_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
     await callback.answer()
     user = await db.get_user(callback.from_user.id)
     if not user or not user.get("zodiac"):
-        await callback.message.answer(
-            "❌ Burjingiz anketada ko'rsatilmagan.\n"
-            "Iltimos, avval anketangizni to'ldiring va burj tanlang."
-        )
+        await callback.message.answer(t(lang, 'no_zodiac'))
         return
-
     my_zodiac = user.get("zodiac")
     my_key = get_zodiac_key(my_zodiac)
     if not my_key or my_key not in ZODIAC_COMPATIBILITY:
-        await callback.message.answer("❌ Burjingiz tanib olinmadi. Anketani yangilang.")
+        await callback.message.answer(t(lang, 'zodiac_not_recognized'))
         return
 
     compat = ZODIAC_COMPATIBILITY[my_key]
     mos_keys = compat["mos"]
 
-    # Mos burjlar nomlarini olish
     mos_names = []
     for k in mos_keys:
         sign = ZODIAC_SIGNS.get(k)
@@ -535,16 +1002,14 @@ async def search_zodiac_compat_callback(callback: types.CallbackQuery):
             mos_names.append(f"{sign[1]} {sign[0]}")
 
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="👨 Faqat erkaklar", callback_data="search_zodiac_compat_gender:erkak"))
-    builder.add(InlineKeyboardButton(text="👩 Faqat ayollar", callback_data="search_zodiac_compat_gender:ayol"))
-    builder.row(InlineKeyboardButton(text="🔄 Barchasi", callback_data="search_zodiac_compat_gender:all"))
-    builder.row(InlineKeyboardButton(text="⬅ Orqaga", callback_data="start_search"))
+    builder.add(InlineKeyboardButton(text=t(lang, 'btn_male'), callback_data="search_zodiac_compat_gender:erkak"))
+    builder.add(InlineKeyboardButton(text=t(lang, 'btn_female'), callback_data="search_zodiac_compat_gender:ayol"))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_all'), callback_data="search_zodiac_compat_gender:all"))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_back'), callback_data="start_search"))
 
     sign_info = ZODIAC_SIGNS.get(my_key, (my_zodiac, "⭐"))
     await callback.message.answer(
-        f"⭐ Sizning burjingiz: *{sign_info[1]} {sign_info[0]}*\n\n"
-        f"Sizga mos burjlar:\n{chr(10).join(mos_names)}\n\n"
-        "Qaysi jinsni qidirmoqchisiz?",
+        t(lang, 'your_zodiac', sign=f"{sign_info[1]} {sign_info[0]}", compat=chr(10).join(mos_names)),
         parse_mode="Markdown",
         reply_markup=builder.as_markup()
     )
@@ -552,23 +1017,22 @@ async def search_zodiac_compat_callback(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("search_zodiac_compat_gender:"))
 async def search_zodiac_compat_gender_callback(callback: types.CallbackQuery):
-    await callback.answer("Burjga mos qidirilmoqda...")
+    lang = await get_user_lang(callback.from_user.id)
+    await callback.answer(t(lang, 'searching_zodiac'))
     gender_value = callback.data.split(":", 1)[1]
-
     user = await db.get_user(callback.from_user.id)
     if not user or not user.get("zodiac"):
-        await callback.message.answer("❌ Burjingiz anketada ko'rsatilmagan.")
+        await callback.message.answer(t(lang, 'no_zodiac'))
         return
 
     my_key = get_zodiac_key(user.get("zodiac"))
     if not my_key:
-        await callback.message.answer("❌ Burjingiz tanib olinmadi.")
+        await callback.message.answer(t(lang, 'zodiac_not_recognized'))
         return
 
     compat = ZODIAC_COMPATIBILITY.get(my_key, {})
     mos_keys = compat.get("mos", [])
 
-    # Mos burj nomlarini collect qilamiz (ZODIAC_NAME_TO_KEY dan teskari)
     mos_zodiac_names = []
     for name, key in ZODIAC_NAME_TO_KEY.items():
         if key in mos_keys:
@@ -580,17 +1044,17 @@ async def search_zodiac_compat_gender_callback(callback: types.CallbackQuery):
 
     users = await db.search_users_by_zodiac(callback.from_user.id, filters)
     if not users:
-        await callback.message.answer("😔 Burjingizga mos hech kim topilmadi. Keyinroq qayta urinib ko'ring.")
+        await callback.message.answer(t(lang, 'no_zodiac_match'))
         return
 
-    search_sessions[callback.from_user.id] = {'users': users, 'index': 0}
-    await show_search_candidate(callback.message, callback.from_user.id, 0)
+    search_sessions[callback.from_user.id] = {'users': users, 'index': 0, 'lang': lang}
+    await show_search_candidate(callback.message, callback.from_user.id, 0, lang)
 
 
 @dp.callback_query(F.data.startswith("search_gender:"))
 async def search_gender_callback(callback: types.CallbackQuery):
-    await callback.answer("Qidirilmoqda...")
-
+    lang = await get_user_lang(callback.from_user.id)
+    await callback.answer(t(lang, 'searching'))
     gender_value = callback.data.split(":", 1)[1]
     filters = {}
     if gender_value != "all":
@@ -598,34 +1062,34 @@ async def search_gender_callback(callback: types.CallbackQuery):
 
     users = await db.search_users(callback.from_user.id, filters)
     if not users:
-        await callback.message.answer("😔 Hech kim topilmadi. Keyinroq yana urinib ko'ring.")
+        await callback.message.answer(t(lang, 'no_results'))
         return
 
-    search_sessions[callback.from_user.id] = {'users': users, 'index': 0}
-    await show_search_candidate(callback.message, callback.from_user.id, 0)
+    search_sessions[callback.from_user.id] = {'users': users, 'index': 0, 'lang': lang}
+    await show_search_candidate(callback.message, callback.from_user.id, 0, lang)
 
 
 @dp.callback_query(F.data == 'search_skip')
 async def search_skip_callback(callback: types.CallbackQuery):
-    await callback.answer('Keyingi nomzodga o\'tkazildi')
+    lang = await get_user_lang(callback.from_user.id)
+    await callback.answer()
     session = search_sessions.get(callback.from_user.id)
     if not session:
-        await callback.message.answer('Qidiruv sessiyasi topilmadi. Qaytadan boshlang.')
+        await callback.message.answer(t(lang, 'no_results'))
         return
-
     index = session.get('index', 0) + 1
     session['index'] = index
     search_sessions[callback.from_user.id] = session
-    await show_search_candidate(callback.message, callback.from_user.id, index)
+    await show_search_candidate(callback.message, callback.from_user.id, index, lang)
 
 
 @dp.callback_query(F.data.startswith('search_like:'))
 async def search_like_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
     to_user = int(callback.data.split(':', 1)[1])
-
     can_like = await db.check_and_increment_limit(callback.from_user.id, 'likes')
     if not can_like:
-        await callback.answer('❌ Kunlik like limitingiz tugadi! 5 ta do\'st qo\'shganingizdan keyin 1 hafta, 10 ta bo\'lsa 1 oy limitsiz bo\'lasiz.', show_alert=True)
+        await callback.answer(t(lang, 'limit_exceeded_likes'), show_alert=True)
         return
 
     is_match = await db.add_like(callback.from_user.id, to_user)
@@ -634,28 +1098,30 @@ async def search_like_callback(callback: types.CallbackQuery):
 
     if is_match and to_user_data and my_data:
         try:
-            await bot.send_message(to_user, f"🎉 Match! {my_data['full_name']} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.")
-            await callback.message.answer(f"🎉 Match! {to_user_data['full_name']} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.")
+            to_lang = await get_user_lang(to_user)
+            await bot.send_message(to_user, t(to_lang, 'match', name=my_data['full_name']))
+            await callback.message.answer(t(lang, 'match', name=to_user_data['full_name']))
         except Exception:
             pass
     else:
         try:
-            await bot.send_message(to_user, f"💌 {my_data['full_name']} sizni like qildi!\n\nWeb App'dagi Chat bo'limini tekshiring.")
+            if to_user_data and my_data:
+                to_lang = await get_user_lang(to_user)
+                await bot.send_message(to_user, t(to_lang, 'like_notify', name=my_data['full_name']))
         except Exception:
             pass
-        await callback.answer('💙 Like yuborildi!', show_alert=False)
+        await callback.answer(t(lang, 'like_sent'), show_alert=False)
 
-    await callback.answer('Like yuborildi!', show_alert=False)
-    await _advance_search(callback)
+    await _advance_search(callback, lang)
 
 
 @dp.callback_query(F.data.startswith('search_super_like:'))
 async def search_super_like_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
     to_user = int(callback.data.split(':', 1)[1])
-
     can_super = await db.check_and_increment_limit(callback.from_user.id, 'super_likes')
     if not can_super:
-        await callback.answer('❌ Kunlik Super Like limitingiz tugadi! 5 ta do\'st qo\'shganingizdan keyin 1 hafta, 10 ta bo\'lsa 1 oy limitsiz bo\'lasiz.', show_alert=True)
+        await callback.answer(t(lang, 'limit_exceeded_super'), show_alert=True)
         return
 
     is_match = await db.add_like(callback.from_user.id, to_user)
@@ -665,91 +1131,57 @@ async def search_super_like_callback(callback: types.CallbackQuery):
 
     if is_match and to_user_data and my_data:
         try:
-            await bot.send_message(to_user, f"⭐ Super Like Match! {my_data['full_name']} sizga Super Like bosdi!\n\nEndi muloqot boshlashingiz mumkin.")
-            await callback.message.answer(f"⭐ Super Like Match! {to_user_data['full_name']} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.")
+            to_lang = await get_user_lang(to_user)
+            await bot.send_message(to_user, t(to_lang, 'super_like_match', name=my_data['full_name']))
+            await callback.message.answer(t(lang, 'super_like_match', name=to_user_data['full_name']))
         except Exception:
             pass
     else:
         try:
-            await bot.send_message(to_user, f"⭐ {my_data['full_name']} sizga Super Like bosdi!\n\nWeb App'dagi Chat bo'limini tekshiring.")
+            if to_user_data and my_data:
+                to_lang = await get_user_lang(to_user)
+                await bot.send_message(to_user, t(to_lang, 'super_like_notify', name=my_data['full_name']))
         except Exception:
             pass
 
-    await callback.answer('⭐ Super Like yuborildi!', show_alert=False)
-    await _advance_search(callback)
+    await callback.answer(t(lang, 'super_like_sent'), show_alert=False)
+    await _advance_search(callback, lang)
 
 
 @dp.callback_query(F.data.startswith('search_message:'))
 async def search_message_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
     to_user = int(callback.data.split(':', 1)[1])
     can_write = await db.can_write(callback.from_user.id, to_user)
     if not can_write:
-        await callback.answer('❌ Avval like yoki super like yuborish kerak.', show_alert=True)
+        await callback.answer(t(lang, 'need_like_first'), show_alert=True)
         return
-
     pending_message_targets[callback.from_user.id] = to_user
-    await callback.answer('Xabar matnini yuboring. Men uni jo\'nataman.', show_alert=True)
-    await callback.message.answer('💬 Xabar matnini yozing. Bitta xabar yuboriladi.')
+    await callback.answer(t(lang, 'send_message_text'), show_alert=True)
+    await callback.message.answer(t(lang, 'send_message_text'))
 
 
-async def _advance_search(callback):
+async def _advance_search(callback, lang='uz'):
     session = search_sessions.get(callback.from_user.id)
     if not session:
         return
-
     index = session.get('index', 0) + 1
     session['index'] = index
     search_sessions[callback.from_user.id] = session
-    await show_search_candidate(callback.message, callback.from_user.id, index)
+    await show_search_candidate(callback.message, callback.from_user.id, index, lang)
 
 
 @dp.callback_query(F.data == "show_main_menu")
 async def show_main_menu_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
     await callback.answer()
-    keyboard = await main_menu_keyboard()
-    await callback.message.answer("Asosiy menyu:", reply_markup=keyboard)
+    keyboard = await main_menu_keyboard(lang)
+    await callback.message.answer(t(lang, 'main_menu'), reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "show_profile")
 async def show_profile_callback(callback: types.CallbackQuery):
-    await callback.answer()
-    user = await db.get_user(callback.from_user.id)
-    if not user:
-        await callback.message.answer("❌ Siz hali anketa to'ldirmagansiz. Iltimos, avval anketangizni to'ldiring.")
-        return
-
-    gender_icon = "👨" if user["gender"] == "erkak" else "👩"
-    goals_text = ", ".join(user["goals"]) if user["goals"] else "ko'rsatilmagan"
-    interests_text = ", ".join((user.get("interests") or [])[:5]) if user.get("interests") else "ko'rsatilmagan"
-    about_text = (user.get("about") or "").strip() or "ko'rsatilmagan"
-    zodiac_text = user.get("zodiac") or "ko'rsatilmagan"
-
-    # Limit status
-    limit_status = await db.get_limit_status(callback.from_user.id)
-    if limit_status['unlimited']:
-        limit_text = "\n✅ *Limitsiz foydalanish*"
-    else:
-        limit_text = f"\n📊 *Kunlik limitlar:*\n"
-        limit_text += f"• Like: {limit_status['likes_used']}/25\n"
-        limit_text += f"• Xabar: {limit_status['messages_used']}/10\n"
-        limit_text += f"• Super Like: {limit_status['super_likes_used']}/10"
-
-    text = (
-        f"{gender_icon} *{user['full_name']}*\n"
-        f"🎂 Yosh: {user['age']}\n"
-        f"📍 Shahar: {format_location_label(user.get('city'))}\n"
-        f"⭐ Burj: {zodiac_text}\n"
-        f"📝 Men haqimda: {about_text}\n"
-        f"❤️ Maqsad: {goals_text}\n"
-        f"🎯 Qiziqishlar: {interests_text}"
-        f"{limit_text}"
-    )
-
-    photo = get_photo_input(user)
-    if photo:
-        await callback.message.answer_photo(photo, caption=text, parse_mode="Markdown")
-    else:
-        await callback.message.answer(text, parse_mode="Markdown")
+    await show_profile_handler(callback)
 
 
 @dp.message()
@@ -757,38 +1189,41 @@ async def handle_pending_message(message: types.Message):
     to_user = pending_message_targets.get(message.from_user.id)
     if not to_user:
         return
-
+    lang = await get_user_lang(message.from_user.id)
     text = message.text or ''
     if not text.strip():
-        await message.answer('❌ Bo\'sh xabar jo\'natib bo\'lmaydi.')
+        await message.answer(t(lang, 'empty_message'))
         pending_message_targets.pop(message.from_user.id, None)
         return
 
     can_write = await db.can_write(message.from_user.id, to_user)
     if not can_write:
-        await message.answer('❌ Avval like yuborish kerak!')
+        await message.answer(t(lang, 'need_like_first'))
         pending_message_targets.pop(message.from_user.id, None)
         return
 
     can_msg = await db.check_and_increment_limit(message.from_user.id, 'messages')
     if not can_msg:
-        await message.answer('❌ Kunlik xabar yuborish limitingiz tugadi! 5 ta do\'st qo\'shganingizdan keyin 1 hafta, 10 ta bo\'lsa 1 oy limitsiz bo\'lasiz.')
+        await message.answer(t(lang, 'limit_exceeded_messages'))
         pending_message_targets.pop(message.from_user.id, None)
         return
 
     match_id = await db.get_match_id(message.from_user.id, to_user)
     if not match_id:
-        await message.answer('❌ Avval like yuborish kerak!')
+        await message.answer(t(lang, 'need_like_first'))
         pending_message_targets.pop(message.from_user.id, None)
         return
 
     await db.send_chat_message(match_id, message.from_user.id, text.strip())
-    await message.answer('✅ Xabar yuborildi!')
+    await message.answer(t(lang, 'message_sent'))
 
     to_user_data = await db.get_user(to_user)
     if to_user_data:
         try:
-            await bot.send_message(to_user, f"💬 {message.from_user.first_name} dan yangi xabar:\n{text.strip()[:100]}")
+            to_lang = await get_user_lang(to_user)
+            await bot.send_message(to_user, t(to_lang, 'new_message',
+                                              name=message.from_user.first_name,
+                                              text=text.strip()[:100]))
         except Exception:
             pass
 
@@ -797,10 +1232,10 @@ async def handle_pending_message(message: types.Message):
 
 @dp.message(F.web_app_data)
 async def web_app_data_handler(message: types.Message):
-    """WebApp dan kelgan ma'lumotlarni qabul qilish"""
     try:
         data = json.loads(message.web_app_data.data)
         action = data.get("action")
+        lang = await get_user_lang(message.from_user.id)
 
         if action == "save_profile":
             profile_data = data.get("profile", {})
@@ -809,79 +1244,65 @@ async def web_app_data_handler(message: types.Message):
 
             success = await db.save_user(message.from_user.id, profile_data)
             if success:
-                keyboard = await main_menu_keyboard()
+                keyboard = await main_menu_keyboard(lang)
                 await message.answer(
-                    "✅ *Anketangiz muvaffaqiyatli saqlandi!*\n\nEndi qidirish orqali yangi do'stlar toping. 🔍",
+                    t(lang, 'profile_saved'),
                     parse_mode="Markdown",
                     reply_markup=keyboard
                 )
             else:
-                await message.answer("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.")
+                await message.answer(t(lang, 'save_error'))
 
         elif action == "like_user":
             to_user = int(data.get("to_user"))
 
-            # Limit tekshirish
             can_like = await db.check_and_increment_limit(message.from_user.id, 'likes')
             if not can_like:
-                await message.answer(
-                    "❌ Kunlik like limitingiz tugadi!\n\n"
-                    "Guruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\n"
-                    "Guruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\n"
-                    "Yoki ertaga yangi limit bilan davom etasiz."
-                )
+                await message.answer(t(lang, 'limit_info_long'))
                 return
 
             logger.info(f"Like action from {message.from_user.id} to {to_user}")
             is_match = await db.add_like(message.from_user.id, to_user)
             to_user_data = await db.get_user(to_user)
             my_data = await db.get_user(message.from_user.id)
-            logger.info(f"Like result: is_match={is_match}, to_user_data={to_user_data is not None}, my_data={my_data is not None}")
+
             if is_match:
                 if to_user_data and my_data:
                     await message.answer(
-                        f"🎉 *Match! {to_user_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                        t(lang, 'match', name=to_user_data['full_name']),
                         parse_mode="Markdown"
                     )
                     try:
+                        to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            f"🎉 *Match! {my_data['full_name']} ham sizni yoqtirdi!*\n\nEndi muloqot boshlashingiz mumkin.",
+                            t(to_lang, 'match', name=my_data['full_name']),
                             parse_mode="Markdown"
                         )
-                        logger.info(f"Match notification sent to {to_user}")
                     except Exception as e:
-                        logger.error(f"Match notify error: {e}", exc_info=True)
+                        logger.error(f"Match notify error: {e}")
                 else:
-                    await message.answer("🎉 Match bo'ldi! Endi muloqot qiling.")
+                    await message.answer(t(lang, 'match', name=''))
             else:
-                await message.answer("💙 Like yuborildi! Agar u ham sizni yoqtirsa, xabar beramiz.")
+                await message.answer(t(lang, 'like_sent'))
                 if to_user_data and my_data:
                     try:
+                        to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            f"💌 *{my_data['full_name']}* sizni like qildi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
+                            t(to_lang, 'like_notify', name=my_data['full_name']),
                             parse_mode="Markdown"
                         )
-                        logger.info(f"Like notification sent to {to_user} from {message.from_user.id}")
                     except Exception as e:
-                        logger.error(f"Like notification error for user {to_user}: {e}", exc_info=True)
-                else:
-                    logger.warning(f"Could not send like notification: to_user_data={to_user_data}, my_data={my_data}")
+                        logger.error(f"Like notification error: {e}")
 
         elif action == "super_like_user":
             to_user = int(data.get("to_user"))
             sticker = data.get("sticker", '')
 
-            # Super Like limit tekshirish
             can_super = await db.check_and_increment_limit(message.from_user.id, 'super_likes')
             if not can_super:
-                await message.answer(
-                    "❌ Kunlik Super Like limitingiz tugadi!\n\n"
-                    "Guruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\n"
-                    "Guruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\n"
-                    "Yoki ertaga yangi limit bilan davom etasiz."
-                )
+                await message.answer(t(lang, 'limit_info_long'))
                 return
 
             is_match = await db.add_like(message.from_user.id, to_user)
@@ -891,13 +1312,14 @@ async def web_app_data_handler(message: types.Message):
             if is_match:
                 if to_user_data and my_data:
                     try:
+                        to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            f"⭐ *Super Like Match!* {my_data['full_name']} sizga Super Like bosdi!\n\nEndi muloqot boshlashingiz mumkin.",
+                            t(to_lang, 'super_like_match', name=my_data['full_name']),
                             parse_mode="Markdown"
                         )
                         await message.answer(
-                            f"🎉 *Super Like Match!* {to_user_data['full_name']} ham sizni yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin.",
+                            t(lang, 'super_like_match', name=to_user_data['full_name']),
                             parse_mode="Markdown"
                         )
                     except Exception as e:
@@ -905,57 +1327,53 @@ async def web_app_data_handler(message: types.Message):
             else:
                 if to_user_data and my_data:
                     try:
+                        to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            f"⭐ *{my_data['full_name']}* sizga Super Like bosdi!\n\nWeb App'dagi Chat bo'limini tekshiring.",
+                            t(to_lang, 'super_like_notify', name=my_data['full_name']),
                             parse_mode="Markdown"
                         )
                     except Exception as e:
                         logger.error(f"Super Like notify error: {e}")
-                await message.answer("⭐ Super Like yuborildi!")
+                await message.answer(t(lang, 'super_like_sent'))
 
         elif action == "block_user":
             blocked_id = int(data.get("blocked_id"))
             await db.block_user(message.from_user.id, blocked_id)
-            await message.answer("🚫 Foydalanuvchi bloklandi.")
+            await message.answer(t(lang, 'blocked'))
 
         elif action == "send_message":
             to_user = int(data.get("to_user"))
             message_text = data.get("message", '').strip()
 
-            # Message limit tekshirish
             can_msg = await db.check_and_increment_limit(message.from_user.id, 'messages')
             if not can_msg:
-                await message.answer(
-                    "❌ Kunlik xabar yuborish limitingiz tugadi!\n\n"
-                    "Guruhga 5 ta odam qo'shsangiz → 1 hafta limitsiz\n"
-                    "Guruhga 10 ta odam qo'shsangiz → 1 oy limitsiz\n\n"
-                    "Yoki ertaga yangi limit bilan davom etasiz."
-                )
+                await message.answer(t(lang, 'limit_info_long'))
                 return
 
-            # Chat yuborish logikasi
             match_id = await db.get_match_id(message.from_user.id, to_user)
             if match_id:
                 await db.send_chat_message(match_id, message.from_user.id, message_text)
-                await message.answer("✅ Xabar yuborildi!")
+                await message.answer(t(lang, 'message_sent'))
                 to_user_data = await db.get_user(to_user)
                 if to_user_data:
                     try:
+                        to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            f"💬 *{message.from_user.first_name}* dan yangi xabar:\n{message_text[:100]}",
+                            t(to_lang, 'new_message',
+                              name=message.from_user.first_name,
+                              text=message_text[:100]),
                             parse_mode="Markdown"
                         )
                     except Exception as e:
                         logger.error(f"Message notify error: {e}")
             else:
-                await message.answer("❌ Avval like yuborish kerak!")
+                await message.answer(t(lang, 'need_like_first'))
 
         elif action == "search":
             filters = data.get("filters", {})
 
-            # Burjga mos qidirish - zodiac_compat_list ni qayta ishlash
             zodiac_compat_list = filters.pop('zodiac_compat_list', None)
             if zodiac_compat_list:
                 mos_keys = []
@@ -966,7 +1384,6 @@ async def web_app_data_handler(message: types.Message):
                         mos_keys.append(key)
                         mos_names.append(name)
 
-                # BARCHA mumkin burj nom variantlarini qo'shamiz
                 for key in mos_keys:
                     for name, name_key in ZODIAC_NAME_TO_KEY.items():
                         if name_key == key and name not in mos_names:
@@ -980,7 +1397,7 @@ async def web_app_data_handler(message: types.Message):
                 users = await db.search_users(message.from_user.id, filters)
 
             if not users:
-                await message.answer("😔 Qidiruv bo'yicha hech kim topilmadi. Filtrlarni o'zgartiring.")
+                await message.answer(t(lang, 'no_results'))
                 return
 
             for u in users[:5]:
@@ -990,16 +1407,16 @@ async def web_app_data_handler(message: types.Message):
 
                 text = (
                     f"{gender_icon} *{u['full_name']}*\n"
-                    f"🎂 Yosh: {u['age']}\n"
-                    f"📍 Shahar: {u['city']}\n"
-                    f"❤️ Maqsad: {goals_text}\n"
-                    f"🎯 Qiziqishlar: {interests_text}"
+                    f"🎂 {t(lang, 'age')}: {u['age']}\n"
+                    f"📍 {t(lang, 'city')}: {u['city']}\n"
+                    f"❤️ {t(lang, 'goals')}: {goals_text}\n"
+                    f"🎯 {t(lang, 'interests')}: {interests_text}"
                 )
 
                 builder = InlineKeyboardBuilder()
-                builder.add(InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{u['telegram_id']}"))
-                builder.add(InlineKeyboardButton(text="🚫 Blok", callback_data=f"block_{u['telegram_id']}"))
-                builder.add(InlineKeyboardButton(text="✉️ Yozish", callback_data=f"write_{u['telegram_id']}"))
+                builder.add(InlineKeyboardButton(text=t(lang, 'btn_like'), callback_data=f"like_{u['telegram_id']}"))
+                builder.add(InlineKeyboardButton(text=t(lang, 'btn_block'), callback_data=f"block_{u['telegram_id']}"))
+                builder.add(InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"write_{u['telegram_id']}"))
 
                 photo = get_photo_input(u)
                 if photo:
@@ -1012,55 +1429,66 @@ async def web_app_data_handler(message: types.Message):
                 else:
                     await message.answer(text, parse_mode="Markdown", reply_markup=builder.as_markup())
 
+        elif action == "change_language":
+            # Web App dan til o'zgartirish
+            new_lang = data.get("language", "uz")
+            if new_lang in SUPPORTED_LANGUAGES:
+                await db.set_user_language(message.from_user.id, new_lang)
+                await message.answer(t(new_lang, 'language_changed', lang=SUPPORTED_LANGUAGES[new_lang]['name']))
+
     except Exception as e:
         logger.error(f"WebApp data error: {e}")
-        await message.answer("❌ Xatolik yuz berdi.")
+        await message.answer(t(await get_user_lang(message.from_user.id), 'save_error'))
 
 
 @dp.callback_query(F.data.startswith("like_"))
 async def like_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
     to_user = int(callback.data.replace("like_", ""))
-
-    # Limit tekshirish
     can_like = await db.check_and_increment_limit(callback.from_user.id, 'likes')
     if not can_like:
-        await callback.answer("❌ Kunlik like limitingiz tugadi!", show_alert=True)
+        await callback.answer(t(lang, 'limit_exceeded_likes'), show_alert=True)
         return
 
     is_match = await db.add_like(callback.from_user.id, to_user)
     if is_match:
         to_user_data = await db.get_user(to_user)
         my_data = await db.get_user(callback.from_user.id)
-        await callback.message.answer(f"🎉 Match! {to_user_data['full_name']} ham sizni yoqtirdi!")
-        await bot.send_message(to_user, f"🎉 Match! {my_data['full_name']} ham sizni yoqtirdi!")
+        await callback.message.answer(t(lang, 'match', name=to_user_data['full_name']))
+        try:
+            to_lang = await get_user_lang(to_user)
+            await bot.send_message(to_user, t(to_lang, 'match', name=my_data['full_name']))
+        except Exception:
+            pass
     else:
-        await callback.answer("💙 Like yuborildi!", show_alert=False)
+        await callback.answer(t(lang, 'like_sent'), show_alert=False)
 
 
 @dp.callback_query(F.data.startswith("block_"))
 async def block_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
     blocked_id = int(callback.data.replace("block_", ""))
     await db.block_user(callback.from_user.id, blocked_id)
-    await callback.answer("🚫 Bloklandi", show_alert=True)
+    await callback.answer(t(lang, 'blocked'), show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("write_"))
 async def write_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
     to_user = int(callback.data.replace("write_", ""))
     can = await db.can_write(callback.from_user.id, to_user)
     if can:
         to_user_data = await db.get_user(to_user)
         username = to_user_data.get("username")
         if username:
-            await callback.answer(f"@{username} ga yozishingiz mumkin!", show_alert=True)
+            await callback.answer(t(lang, 'write_username', username=username), show_alert=True)
         else:
-            await callback.answer("Bu foydalanuvchining username yo'q.", show_alert=True)
+            await callback.answer(t(lang, 'no_username'), show_alert=True)
     else:
-        await callback.answer("❌ Avval like yuborish kerak!", show_alert=True)
+        await callback.answer(t(lang, 'need_like_first'), show_alert=True)
 
 
 # ========== HTTP API ==========
-
 def serialize_value(value):
     if isinstance(value, (list, tuple)):
         return [serialize_value(v) for v in value]
@@ -1089,7 +1517,6 @@ async def cors_middleware(request, handler):
                 'Access-Control-Max-Age': '86400',
             }
         )
-
     response = await handler(request)
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
@@ -1116,11 +1543,8 @@ async def search_api(request):
         if telegram_id is None:
             telegram_id = 0
 
-        # Burjga mos qidirish
         zodiac_compat_list = filters.pop('zodiac_compat_list', None)
         if zodiac_compat_list:
-            # zodiac_compat_list = ["Sher (Leo)", "Egizaklar (Gemini)", ...]
-            # Bu nomlarni ZODIAC_NAME_TO_KEY orqali keysga aylantirib, keyin search_users_by_zodiac chaqiramiz
             mos_keys = []
             mos_names = []
             for name in zodiac_compat_list:
@@ -1129,8 +1553,6 @@ async def search_api(request):
                     mos_keys.append(key)
                     mos_names.append(name)
 
-            # BARCHA mumkin burj nom variantlarini qo'shamiz
-            # Bu ma'lumotlar bazasida turli formatlarda saqlangan burjlarni topish uchun
             for key in mos_keys:
                 for name, name_key in ZODIAC_NAME_TO_KEY.items():
                     if name_key == key and name not in mos_names:
@@ -1138,7 +1560,7 @@ async def search_api(request):
 
             zodiac_filters = dict(filters)
             zodiac_filters['zodiac_keys'] = mos_keys
-            zodiac_filters['zodiac_names'] = mos_names  # barcha nom variantlari for ILIKE
+            zodiac_filters['zodiac_names'] = mos_names
             users = await db.search_users_by_zodiac(int(telegram_id), zodiac_filters)
         else:
             users = await db.search_users(int(telegram_id), filters)
@@ -1216,7 +1638,6 @@ async def admin_analytics_api(request):
 
 
 # ========== CHAT API ENDPOINTS ==========
-
 async def likes_received_api(request):
     try:
         data = await request.json()
@@ -1244,21 +1665,20 @@ async def accept_like_api(request):
             from_data = await db.get_user(int(from_user))
             if to_data and from_data:
                 try:
+                    to_lang = await get_user_lang(int(telegram_id))
+                    from_lang = await get_user_lang(int(from_user))
                     await bot.send_message(
                         int(from_user),
-                        f"🎉 *{to_data['full_name']}* sizning like-ingizni qabul qildi!\n\n💬 Endi Web App'dagi Chat bo'limidan suhbat boshlashingiz mumkin.",
+                        t(from_lang, 'like_accepted', name=to_data['full_name']),
                         parse_mode="Markdown"
                     )
-                except Exception as e:
-                    logger.error(f"Notify liker error: {e}")
-                try:
                     await bot.send_message(
                         int(telegram_id),
-                        f"✅ Siz *{from_data['full_name']}* bilan muloqotni boshladingiz!",
+                        t(to_lang, 'chat_started', name=from_data['full_name']),
                         parse_mode="Markdown"
                     )
                 except Exception as e:
-                    logger.error(f"Notify accepter error: {e}")
+                    logger.error(f"Notify error: {e}")
             return web.json_response({'success': True, 'match_id': match_id})
         return web.json_response({'success': False, 'error': 'Like not found'}, status=404)
     except Exception as e:
@@ -1280,9 +1700,10 @@ async def reject_like_api(request):
             from_data = await db.get_user(int(from_user))
             if to_data and from_data:
                 try:
+                    from_lang = await get_user_lang(int(from_user))
                     await bot.send_message(
                         int(from_user),
-                        f"❌ *{to_data['full_name']}* sizni rad qildi.\n\nKeyinroq yana sinab ko'ring.",
+                        t(from_lang, 'rejected', name=to_data['full_name']),
                         parse_mode="Markdown"
                     )
                 except Exception as e:
@@ -1329,7 +1750,6 @@ async def send_chat_api(request):
         if not match_id or not sender_id or not message:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
 
-        # Xabar yuborish limit tekshirish
         can_msg = await db.check_and_increment_limit(int(sender_id), 'messages')
         if not can_msg:
             return web.json_response({
@@ -1338,10 +1758,7 @@ async def send_chat_api(request):
                 'message': 'Kunlik xabar yuborish limitingiz tugadi!'
             }, status=403)
 
-        logger.info(f"Chat message from {sender_id} in match {match_id}: {message[:50]}")
         success = await db.send_chat_message(int(match_id), int(sender_id), message)
-        if success:
-            logger.info(f"Chat message saved successfully")
         return web.json_response({'success': success})
     except Exception as e:
         logger.error(f"SEND CHAT API xatolik: {e}", exc_info=True)
@@ -1402,7 +1819,6 @@ async def like_send_api(request):
         super_like = bool(data.get('super_like', False))
         sticker = data.get('sticker', '')
 
-        # Limit tekshirish
         limit_type = 'super_likes' if super_like else 'likes'
         can_use = await db.check_and_increment_limit(from_user, limit_type)
         if not can_use:
@@ -1422,24 +1838,24 @@ async def like_send_api(request):
         if is_match:
             if to_user_data and from_user_data:
                 try:
-                    super_like_label = "⭐ *Super Like Match!* " if super_like else "🎉 *Match!* "
-                    super_like_note = (
-                        f"\n\n{sticker} Sizga tanlangan emoji bilan Super Like yuborildi."
-                        if super_like and sticker else
-                        "\n\nSizga Super Like yuborildi."
-                    ) if super_like else ""
+                    to_lang = await get_user_lang(to_user)
+                    from_lang = await get_user_lang(from_user)
+                    super_like_label = t(from_lang, 'super_like_label') if super_like else t(from_lang, 'match_label')
+
                     await bot.send_message(
                         int(to_user),
-                        f"{super_like_label}{from_user_data['full_name']} sizga "
-                        + ("Super Like bosdi!" if super_like else "ham sizni yoqtirdi!")
-                        + super_like_note
+                        f"{super_like_label}{from_user_data['full_name']} "
+                        + (t(to_lang, 'pressed_super_like') if super_like else t(to_lang, 'pressed_like'))
+                        + (t(to_lang, 'super_like_note', sticker=sticker) if super_like and sticker else
+                           t(to_lang, 'super_like_note_default') if super_like else " ")
                         + "\n\nEndi muloqot boshlashingiz mumkin.",
                         parse_mode="Markdown"
                     )
                     await bot.send_message(
                         int(from_user),
-                        f"{super_like_label}{to_user_data['full_name']} ham sizni yoqtirdi!"
-                        + (f"\n\n{sticker} Super Like yuborildi." if super_like and sticker else "")
+                        f"{super_like_label}{to_user_data['full_name']} "
+                        + t(from_lang, 'pressed_like')
+                        + (f"\n\n{sticker} Super Like yuborildi." if super_like and sticker else " ")
                         + "\n\nEndi muloqot boshlashingiz mumkin.",
                         parse_mode="Markdown"
                     )
@@ -1449,31 +1865,57 @@ async def like_send_api(request):
         else:
             if to_user_data and from_user_data:
                 try:
+                    to_lang = await get_user_lang(to_user)
                     if super_like:
                         msg = (
-                            f"⭐ *{from_user_data['full_name']}* sizga Super Like bosdi!"
-                            + (f"\n\n{sticker} Sizga tanlangan emoji bilan Super Like yuborildi." if sticker else "\n\nSizga Super Like yuborildi.")
+                            f"⭐ *{from_user_data['full_name']}* " + t(to_lang, 'pressed_super_like')
+                            + (t(to_lang, 'super_like_note', sticker=sticker) if sticker else t(to_lang, 'super_like_note_default'))
                             + "\n\nWeb App'dagi Chat bo'limini tekshiring."
                         )
                     else:
                         msg = (
-                            f"💌 *{from_user_data['full_name']}* sizni like qildi!"
+                            f"💌 *{from_user_data['full_name']}* " + t(to_lang, 'pressed_like')
                             + "\n\nWeb App'dagi Chat bo'limini tekshiring."
                         )
                     await bot.send_message(int(to_user), msg, parse_mode="Markdown")
-                    logger.info(f"Like notification sent to {to_user} from {from_user} (super_like={super_like})")
                 except Exception as e:
-                    logger.error(f"Like notification error for user {to_user}: {e}")
+                    logger.error(f"Like notification error: {e}")
             return web.json_response({'success': True, 'match': False, 'match_id': None, 'super_like': super_like})
     except Exception as e:
         logger.error(f"LIKE SEND API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-# ========== LIMIT API ENDPOINTS ==========
+# ========== TIL API ==========
+async def user_language_api(request):
+    """Foydalanuvchining tilini olish/o'zgartirish"""
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
 
+        # Agar language berilgan bo'lsa, o'zgartirish
+        new_lang = data.get('language')
+        if new_lang:
+            if new_lang not in SUPPORTED_LANGUAGES:
+                return web.json_response({'success': False, 'error': 'Invalid language'}, status=400)
+            await db.set_user_language(int(telegram_id), new_lang)
+
+        # Joriy tilni qaytarish
+        lang = await db.get_user_language(int(telegram_id))
+        return web.json_response({
+            'success': True,
+            'language': lang,
+            'languages': {code: info for code, info in SUPPORTED_LANGUAGES.items()}
+        })
+    except Exception as e:
+        logger.error(f"LANGUAGE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+# ========== LIMIT API ENDPOINTS ==========
 async def limit_status_api(request):
-    """Foydalanuvchining kunlik limit statusini olish"""
     try:
         data = await request.json()
         telegram_id = data.get('telegram_id')
@@ -1487,7 +1929,6 @@ async def limit_status_api(request):
 
 
 async def referral_status_api(request):
-    """Foydalanuvchining guruh invite statusini olish"""
     try:
         data = await request.json()
         telegram_id = data.get('telegram_id')
@@ -1508,25 +1949,11 @@ async def referral_status_api(request):
         logger.error(f"REFERRAL STATUS API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
-LIMIT_EXCEEDED_TEXT = (
-    "Sizning kunlik limitingiz tugadi.\n\n"
-    "📊 Kunlik limitlar:\n"
-    "• Like: 25 ta\n"
-    "• Xabar yuborish: 10 ta\n"
-    "• Super Like: 10 ta\n\n"
-    "🎁 Limitni oshirish:\n"
-    "Guruhga 5 ta odam qo'shing → 1 hafta limitsiz\n"
-    "Guruhga 10 ta odam qo'shing → 1 oy limitsiz\n\n"
-    "👇 Quyidagi tugma orqali guruhga qo'shiling!"
-)
-
 
 # ========== MAIN ==========
-
 async def main():
     await db.init_db()
     logger.info("Bot ishga tushdi...")
-
     app = web.Application()
     app.middlewares.append(cors_middleware)
 
@@ -1551,6 +1978,9 @@ async def main():
     app.router.add_post('/api/limits/status', limit_status_api)
     app.router.add_post('/api/referral/status', referral_status_api)
 
+    # Language route
+    app.router.add_post('/api/language', user_language_api)
+
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
         parsed = urlparse(webhook_url)
@@ -1559,7 +1989,7 @@ async def main():
         await bot.set_webhook(webhook_url, drop_pending_updates=True)
         logger.info(f"Webhook enabled on {webhook_url}")
     else:
-        logger.warning('WEBHOOK_URL not set; falling back to polling (may conflict if multiple instances are running).')
+        logger.warning('WEBHOOK_URL not set; falling back to polling.')
 
     runner = web.AppRunner(app)
     await runner.setup()
