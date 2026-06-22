@@ -903,9 +903,8 @@ async def start_handler(message: types.Message):
     lang = await get_user_lang(telegram_id)
     user = await db.get_user(telegram_id)
 
-    # Agar til tanlanmagan bo'lsa (yangi foydalanuvchi)
-    if not user or not user.get('language') or user.get('language') == 'uz':
-        # Til tanlash menyusini ko'rsatish
+# Agar til tanlanmagan bo'lsa (faqat yangi foydalanuvchi)
+    if not user or not user.get('language'):
         await message.answer(
             t('uz', 'select_language'),
             reply_markup=await language_keyboard()
