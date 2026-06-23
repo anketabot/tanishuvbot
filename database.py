@@ -252,7 +252,26 @@ async def is_unlimited(telegram_id):
         await conn.close()
 
 
+async def is_female_user(telegram_id):
+    """Foydalanuvchi ayol ekanligini tekshirish — ayollar uchun limit yo'q"""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT gender FROM users WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row and row['gender'] == 'ayol':
+            return True
+        return False
+    finally:
+        await conn.close()
+
+
 async def check_and_increment_limit(telegram_id, limit_type):
+    # Ayol foydalanuvchilar uchun hech qanday limit yo'q
+    if await is_female_user(telegram_id):
+        return True
+
     unlimited = await is_unlimited(telegram_id)
     if unlimited:
         return True
@@ -296,10 +315,24 @@ async def _increment_limit(telegram_id, column):
 
 
 async def get_limit_status(telegram_id):
+    # Ayol foydalanuvchilar uchun har doim limitsiz
+    if await is_female_user(telegram_id):
+        return {
+            'unlimited': True,
+            'is_female': True,
+            'likes_remaining': 999,
+            'messages_remaining': 999,
+            'super_likes_remaining': 999,
+            'likes_used': 0,
+            'messages_used': 0,
+            'super_likes_used': 0,
+        }
+
     unlimited = await is_unlimited(telegram_id)
     if unlimited:
         return {
             'unlimited': True,
+            'is_female': False,
             'likes_remaining': 999,
             'messages_remaining': 999,
             'super_likes_remaining': 999
@@ -311,6 +344,7 @@ async def get_limit_status(telegram_id):
 
     return {
         'unlimited': False,
+        'is_female': False,
         'likes_used': limits['likes_used'],
         'likes_remaining': max(0, MAX_LIKES - limits['likes_used']),
         'messages_used': limits['messages_used'],
