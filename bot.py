@@ -914,10 +914,8 @@ async def start_handler(message: types.Message):
 
     # Til tanlangan bo'lsa, asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang)
-    is_female = await db.is_female_user(telegram_id)
-    extra_info = "\n\n👩 *Ayol foydalanuvchilar uchun cheklov yo'q!*" if is_female else t(lang, 'limits_info')
     await message.answer(
-        t(lang, 'welcome', name=message.from_user.first_name) + extra_info,
+        t(lang, 'welcome', name=message.from_user.first_name) + t(lang, 'limits_info'),
         parse_mode="Markdown",
         reply_markup=keyboard
     )
@@ -937,10 +935,8 @@ async def set_language_callback(callback: types.CallbackQuery):
 
     # Asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang_code)
-    is_female = await db.is_female_user(callback.from_user.id)
-    extra_info = "\n\n👩 *Ayol foydalanuvchilar uchun cheklov yo'q!*" if is_female else t(lang_code, 'limits_info')
     await callback.message.edit_text(
-        t(lang_code, 'welcome', name=callback.from_user.first_name) + extra_info,
+        t(lang_code, 'welcome', name=callback.from_user.first_name) + t(lang_code, 'limits_info'),
         parse_mode="Markdown",
         reply_markup=keyboard
     )
@@ -999,9 +995,7 @@ async def show_profile_handler(message_or_callback):
     zodiac_text = user.get("zodiac") or t(lang, 'not_specified')
 
     limit_status = await db.get_limit_status(user_id)
-    if limit_status.get('is_female'):
-        limit_text = "\n\n👩 *Ayol foydalanuvchilar uchun cheklov yo'q!*"
-    elif limit_status['unlimited']:
+    if limit_status['unlimited']:
         limit_text = t(lang, 'unlimited_access')
     else:
         limit_text = t(lang, 'daily_limits',
