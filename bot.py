@@ -914,8 +914,12 @@ async def start_handler(message: types.Message):
 
     # Til tanlangan bo'lsa, asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang)
+    is_female = await db.is_female_user(telegram_id)
+    welcome_text = t(lang, 'welcome', name=message.from_user.first_name)
+    if not is_female:
+        welcome_text += t(lang, 'limits_info')
     await message.answer(
-        t(lang, 'welcome', name=message.from_user.first_name) + t(lang, 'limits_info'),
+        welcome_text,
         parse_mode="Markdown",
         reply_markup=keyboard
     )
@@ -935,8 +939,12 @@ async def set_language_callback(callback: types.CallbackQuery):
 
     # Asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang_code)
+    is_female = await db.is_female_user(callback.from_user.id)
+    welcome_text = t(lang_code, 'welcome', name=callback.from_user.first_name)
+    if not is_female:
+        welcome_text += t(lang_code, 'limits_info')
     await callback.message.edit_text(
-        t(lang_code, 'welcome', name=callback.from_user.first_name) + t(lang_code, 'limits_info'),
+        welcome_text,
         parse_mode="Markdown",
         reply_markup=keyboard
     )
