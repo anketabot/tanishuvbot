@@ -5,6 +5,7 @@ import logging
 import os
 from urllib.parse import urlparse
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
     BufferedInputFile,
@@ -913,8 +914,10 @@ async def start_handler(message: types.Message):
 
     # Til tanlangan bo'lsa, asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang)
+    is_female = await db.is_female_user(telegram_id)
+    extra_info = "\n\n👩 *Ayol foydalanuvchilar uchun cheklov yo'q!*" if is_female else t(lang, 'limits_info')
     await message.answer(
-        t(lang, 'welcome', name=message.from_user.first_name),
+        t(lang, 'welcome', name=message.from_user.first_name) + extra_info,
         parse_mode="Markdown",
         reply_markup=keyboard
     )
@@ -934,8 +937,10 @@ async def set_language_callback(callback: types.CallbackQuery):
 
     # Asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang_code)
+    is_female = await db.is_female_user(callback.from_user.id)
+    extra_info = "\n\n👩 *Ayol foydalanuvchilar uchun cheklov yo'q!*" if is_female else t(lang_code, 'limits_info')
     await callback.message.edit_text(
-        t(lang_code, 'welcome', name=callback.from_user.first_name),
+        t(lang_code, 'welcome', name=callback.from_user.first_name) + extra_info,
         parse_mode="Markdown",
         reply_markup=keyboard
     )
@@ -994,7 +999,9 @@ async def show_profile_handler(message_or_callback):
     zodiac_text = user.get("zodiac") or t(lang, 'not_specified')
 
     limit_status = await db.get_limit_status(user_id)
-    if limit_status['unlimited']:
+    if limit_status.get('is_female'):
+        limit_text = "\n\n👩 *Ayol foydalanuvchilar uchun cheklov yo'q!*"
+    elif limit_status['unlimited']:
         limit_text = t(lang, 'unlimited_access')
     else:
         limit_text = t(lang, 'daily_limits',
@@ -1606,6 +1613,10 @@ async def telegram_webhook_handler(request: web.Request):
         update = types.Update(**update_data)
         await dp.feed_update(bot, update)
         return web.Response(text="OK", status=200)
+    except TelegramForbiddenError:
+        # Foydalanuvchi botni bloklagan — bu normal holat, 200 qaytaramiz
+        # Telegram qayta urinishni to'xtatadi
+        return web.Response(text="OK", status=200)
     except Exception as exc:
         logger.error("Webhook update error: %s", exc, exc_info=True)
         return web.Response(text="Bad Request", status=400)
@@ -2026,8 +2037,64 @@ async def referral_status_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+# ========== STATS / LEADERBOARD ==========
+async def leaderboard_api(request):
+    try:
+        conn = await db.get_db()
+        try:
+            most_active = await conn.fetch("""
+                SELECT u.telegram_id, u.full_name, u.photo_base64,
+                       COUNT(l.id) AS count
+                FROM users u
+                LEFT JOIN likes l ON l.from_user = u.telegram_id
+                WHERE u.is_active = TRUE
+                GROUP BY u.telegram_id, u.full_name, u.photo_base64
+                ORDER BY count DESC
+                LIMIT 10
+            """)
+            top_liked = await conn.fetch("""
+                SELECT u.telegram_id, u.full_name, u.photo_base64,
+                       COUNT(l.id) AS count
+                FROM users u
+                LEFT JOIN likes l ON l.to_user = u.telegram_id
+                WHERE u.is_active = TRUE
+                GROUP BY u.telegram_id, u.full_name, u.photo_base64
+                ORDER BY count DESC
+                LIMIT 10
+            """)
+            top_super_liked = await conn.fetch("""
+                SELECT telegram_id, full_name, photo_base64,
+                       COALESCE(super_likes_used, 0) AS count
+                FROM users
+                WHERE is_active = TRUE
+                ORDER BY super_likes_used DESC
+                LIMIT 10
+            """)
+        finally:
+            await conn.close()
+
+        def row_to_dict(r):
+            return {
+                'telegram_id': r['telegram_id'],
+                'full_name': r['full_name'] or 'Anonim',
+                'photo_base64': r['photo_base64'],
+                'count': r['count'],
+            }
+
+        return web.json_response({
+            'success': True,
+            'most_active': [row_to_dict(r) for r in most_active],
+            'top_liked': [row_to_dict(r) for r in top_liked],
+            'top_super_liked': [row_to_dict(r) for r in top_super_liked],
+        })
+    except Exception as e:
+        logger.error(f"LEADERBOARD API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 # ========== MAIN ==========
 async def main():
+    await db.init_db()
     await db.init_db()
     logger.info("Bot ishga tushdi...")
     app = web.Application()
@@ -2056,6 +2123,9 @@ async def main():
 
     # Language route
     app.router.add_post('/api/language', user_language_api)
+
+    # Stats / Leaderboard
+    app.router.add_post('/api/stats/leaderboard', leaderboard_api)
 
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
