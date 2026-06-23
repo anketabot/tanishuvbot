@@ -1,4 +1,4 @@
-BOT_TOKEN = "8224380614:AAF7GXGvWg5JD5T2VjYYlRBSQLq_YYI18zw"
+BOT_TOKEN = "8694682300:AAEyCnECVCsq5Ebjl8rLMkMXY_Dg_UlLgJc"
 DATABASE_URL = "postgresql://postgres:phUAWonpnpDWaGSQUgeuyDrbqohmsDzi@acela.proxy.rlwy.net:51349/railway"
 WEBAPP_URL = "https://anketabot.github.io/tanishuvweb/"
 ADMIN_PASSWORD = "1"
