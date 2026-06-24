@@ -1956,14 +1956,23 @@ async def like_send_api(request):
                 'message': f"Kunlik {limit_type} limitingiz tugadi!"
             }, status=403)
 
-        is_match = await db.add_like(from_user, to_user)
+        # add_like endi har doim match yaratadi, mutual=True bo'lsa ikki tomonlama
+        is_mutual = await db.add_like(from_user, to_user)
         if super_like:
             await db.increment_super_like_usage(from_user)
-        match_id = await db.get_match_id(from_user, to_user) if is_match else None
+
+        # Match ID ni olamiz (har doim bo'ladi endi)
+        match_id = await db.get_match_id(from_user, to_user)
+
+        # Pending xabarlarni match chat ga o'tkazamiz
+        if match_id:
+            await db.deliver_pending_messages_to_match(from_user, to_user)
+
         to_user_data = await db.get_user(to_user)
         from_user_data = await db.get_user(from_user)
 
-        if is_match:
+        if is_mutual:
+            # Ikki tomonlama match — ikkalasiga ham xabar yuboramiz
             if to_user_data and from_user_data:
                 try:
                     to_lang = await get_user_lang(to_user)
@@ -1991,6 +2000,7 @@ async def like_send_api(request):
                     logger.error(f"Match notify error: {e}")
             return web.json_response({'success': True, 'match': True, 'match_id': match_id, 'super_like': super_like})
         else:
+            # Bir tomonlama like — qabul qiluvchiga bildirishnoma, lekin match_id bor (chat ochiladi)
             if to_user_data and from_user_data:
                 try:
                     to_lang = await get_user_lang(to_user)
@@ -2008,7 +2018,8 @@ async def like_send_api(request):
                     await bot.send_message(int(to_user), msg, parse_mode="Markdown")
                 except Exception as e:
                     logger.error(f"Like notification error: {e}")
-            return web.json_response({'success': True, 'match': False, 'match_id': None, 'super_like': super_like})
+            # match_id mavjud — frontend chat ochishi uchun
+            return web.json_response({'success': True, 'match': True, 'match_id': match_id, 'super_like': super_like})
     except Exception as e:
         logger.error(f"LIKE SEND API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
