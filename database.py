@@ -156,6 +156,18 @@ async def init_db():
             )
         """)
 
+        # Pending xabarlar — match bo'lmasa ham yuborilgan xabarlar
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_messages (
+                id BIGSERIAL PRIMARY KEY,
+                from_user BIGINT NOT NULL,
+                to_user BIGINT NOT NULL,
+                message TEXT NOT NULL,
+                is_delivered BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
     finally:
         await conn.close()
 
@@ -680,24 +692,26 @@ async def search_users_by_zodiac(telegram_id, filters):
 
 
 async def add_like(from_user, to_user):
+    """Like yuboradi. Har doim match yaratiladi (bir tomonlama ham).
+    Mutual like bo'lsa True, aks holda False qaytaradi."""
     conn = await get_db()
     try:
         await conn.execute(
             "INSERT INTO likes (from_user, to_user) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             from_user, to_user
         )
+        # Har doim match yaratamiz (chat ochilishi uchun)
+        u1, u2 = min(from_user, to_user), max(from_user, to_user)
+        await conn.execute(
+            "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            u1, u2
+        )
+        # Mutual like tekshirish (match notification uchun)
         mutual = await conn.fetchrow(
             "SELECT id FROM likes WHERE from_user = $1 AND to_user = $2",
             to_user, from_user
         )
-        if mutual:
-            u1, u2 = min(from_user, to_user), max(from_user, to_user)
-            await conn.execute(
-                "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                u1, u2
-            )
-            return True
-        return False
+        return mutual is not None
     finally:
         await conn.close()
 
@@ -850,6 +864,8 @@ async def reject_like(telegram_id, from_user):
 
 
 async def get_matches(telegram_id):
+    """Foydalanuvchining barcha chat suhbatlarini olish.
+    Matches jadvalidagi + pending xabar yuborilgan suhbatlar."""
     conn = await get_db()
     try:
         rows = await conn.fetch("""
@@ -910,6 +926,105 @@ async def send_chat_message(match_id, sender_id, message):
         return True
     except Exception:
         return False
+    finally:
+        await conn.close()
+
+
+# ========== PENDING MESSAGES ==========
+async def save_pending_message(from_user, to_user, message):
+    """Match bo'lmasa ham xabarni saqlaydi."""
+    conn = await get_db()
+    try:
+        await conn.execute(
+            "INSERT INTO pending_messages (from_user, to_user, message) VALUES ($1, $2, $3)",
+            from_user, to_user, message
+        )
+        return True
+    except Exception:
+        return False
+    finally:
+        await conn.close()
+
+
+async def get_pending_messages_for_match(match_id):
+    """Match uchun pending xabarlarni oladi va ularni chat_messages ga ko'chiradi."""
+    conn = await get_db()
+    try:
+        # Match ma'lumotlarini olamiz
+        match_row = await conn.fetchrow(
+            "SELECT user1, user2 FROM matches WHERE id = $1", match_id
+        )
+        if not match_row:
+            return 0
+
+        user1 = match_row['user1']
+        user2 = match_row['user2']
+
+        # Ikkala tomonning pending xabarlarini olamiz
+        pending_rows = await conn.fetch("""
+            SELECT id, from_user, message, created_at FROM pending_messages
+            WHERE ((from_user = $1 AND to_user = $2) OR (from_user = $2 AND to_user = $1))
+            AND is_delivered = FALSE
+            ORDER BY created_at ASC
+        """, user1, user2)
+
+        count = 0
+        for row in pending_rows:
+            # chat_messages ga ko'chiramiz
+            await conn.execute(
+                "INSERT INTO chat_messages (match_id, sender_id, message, created_at) VALUES ($1, $2, $3, $4)",
+                match_id, row['from_user'], row['message'], row['created_at']
+            )
+            # Delivered deb belgilaymiz
+            await conn.execute(
+                "UPDATE pending_messages SET is_delivered = TRUE WHERE id = $1",
+                row['id']
+            )
+            count += 1
+        return count
+    except Exception as e:
+        print(f"get_pending_messages_for_match error: {e}")
+        return 0
+    finally:
+        await conn.close()
+
+
+async def deliver_pending_messages_to_match(from_user, to_user):
+    """from_user → to_user ga yuborilgan pending xabarlarni match chat_messages ga o'tkazadi."""
+    conn = await get_db()
+    try:
+        u1, u2 = min(from_user, to_user), max(from_user, to_user)
+        match_row = await conn.fetchrow(
+            "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2", u1, u2
+        )
+        if not match_row:
+            return 0
+
+        match_id = match_row['id']
+
+        # Pending xabarlarni olamiz (ikki tomonlama)
+        pending_rows = await conn.fetch("""
+            SELECT id, from_user, message, created_at FROM pending_messages
+            WHERE ((from_user = $1 AND to_user = $2) OR (from_user = $2 AND to_user = $1))
+            AND is_delivered = FALSE
+            ORDER BY created_at ASC
+        """, from_user, to_user)
+
+        count = 0
+        for row in pending_rows:
+            await conn.execute(
+                "INSERT INTO chat_messages (match_id, sender_id, message, created_at) VALUES ($1, $2, $3, $4)",
+                match_id, row['from_user'], row['message'], row['created_at']
+            )
+            await conn.execute(
+                "UPDATE pending_messages SET is_delivered = TRUE WHERE id = $1",
+                row['id']
+            )
+            count += 1
+        return count
+    except Exception as e:
+        print(f"deliver_pending_messages_to_match error: {e}")
+        return 0
     finally:
         await conn.close()
 
