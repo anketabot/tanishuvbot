@@ -1893,6 +1893,45 @@ async def initiate_chat_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+async def send_pending_message_api(request):
+    """Match bo'lmasa ham xabarni qabul qiluvchiga yuboradi (Telegram bot orqali)"""
+    try:
+        data = await request.json()
+        try:
+            from_user = int(data.get('from_user'))
+            to_user = int(data.get('to_user'))
+        except (TypeError, ValueError):
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+
+        message = str(data.get('message', '')).strip()
+        if not message:
+            return web.json_response({'success': False, 'error': 'Empty message'}, status=400)
+
+        from_user_data = await db.get_user(from_user)
+        to_user_data = await db.get_user(to_user)
+
+        if not from_user_data or not to_user_data:
+            return web.json_response({'success': False, 'error': 'User not found'}, status=404)
+
+        try:
+            to_lang = await get_user_lang(to_user)
+            sender_name = from_user_data.get('full_name', 'Foydalanuvchi')
+            notify_msg = (
+                f"💬 *{sender_name}* sizga xabar yubordi:\n\n"
+                f"_{message}_\n\n"
+                f"Javob berish uchun Web App'dagi Chat bo'limini tekshiring."
+            )
+            await bot.send_message(int(to_user), notify_msg, parse_mode="Markdown")
+            return web.json_response({'success': True})
+        except Exception as e:
+            logger.error(f"Pending message send error: {e}")
+            return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+    except Exception as e:
+        logger.error(f"SEND PENDING MESSAGE API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def like_send_api(request):
     try:
         data = await request.json()
@@ -2120,6 +2159,7 @@ async def main():
     app.router.add_post('/api/initiate_chat', initiate_chat_api)
 
     # Limit routes
+    app.router.add_post('/api/messages/send_pending', send_pending_message_api)
     app.router.add_post('/api/limits/status', limit_status_api)
     app.router.add_post('/api/referral/status', referral_status_api)
 
