@@ -720,24 +720,115 @@ async def main_menu_keyboard(lang='uz'):
     return builder.as_markup()
 
 
+# ========== REGIONS.JSON DAN DINAMIK YUKLASH ==========
+_regions_data = None
+
+def _load_regions():
+    """regions.json faylni bir marta yuklab kesh qiladi."""
+    global _regions_data
+    if _regions_data is not None:
+        return _regions_data
+    regions_path = os.path.join(os.path.dirname(__file__), 'regions.json')
+    try:
+        with open(regions_path, encoding='utf-8') as f:
+            _regions_data = json.load(f)
+        logger.info("regions.json muvaffaqiyatli yuklandi.")
+    except Exception as e:
+        logger.error(f"regions.json yuklanmadi: {e}")
+        _regions_data = {}
+    return _regions_data
+
+def _build_region_rules_from_json():
+    """
+    regions.json → get_city_region uchun rules ro'yxatini yaratadi.
+    uzbekCitiesML barcha tillardagi viloyat → tumanlar ma'lumotini birlashtiradi.
+    """
+    data = _load_regions()
+    uzbek_ml = data.get('uzbekCitiesML', {})
+
+    # viloyat_nomi (uz) → barcha tillardagi tuman/shahar nomlari
+    region_terms: dict[str, list[str]] = {}
+
+    # uzbekCitiesML['uz'] → canonical viloyat nomlar
+    uz_data = uzbek_ml.get('uz', {})
+    for region_uz, districts in uz_data.items():
+        key = region_uz  # canonical nom (uz tilida)
+        if key not in region_terms:
+            region_terms[key] = []
+        # uz tumanlarini qo'shamiz
+        for d in districts:
+            region_terms[key].append(d.lower())
+        # viloyatning o'zini ham qo'shamiz
+        region_terms[key].append(region_uz.lower())
+
+    # Boshqa tillardagi nomlarni ham qo'shamiz (positional moslik orqali)
+    uz_regions_list = list(uz_data.keys())
+    for lang, lang_data in uzbek_ml.items():
+        if lang == 'uz':
+            continue
+        lang_regions_list = list(lang_data.keys())
+        for i, (region_lang, districts_lang) in enumerate(lang_data.items()):
+            # Positional mos kelish: i-chi viloyat → uz_regions_list[i]
+            if i < len(uz_regions_list):
+                canonical = uz_regions_list[i]
+            else:
+                canonical = region_lang  # fallback
+            if canonical not in region_terms:
+                region_terms[canonical] = []
+            region_terms[canonical].append(region_lang.lower())
+            for d in districts_lang:
+                region_terms[canonical].append(d.lower())
+
+    # rules formatiga o'tkazamiz
+    rules = [{'region': region, 'terms': list(set(terms))}
+             for region, terms in region_terms.items()]
+    return rules
+
+
+_city_region_rules = None
+
+def _get_city_region_rules():
+    global _city_region_rules
+    if _city_region_rules is None:
+        _city_region_rules = _build_region_rules_from_json()
+    return _city_region_rules
+
+
 def get_city_region(city=''):
+    # Ko'p tilli shahar/tuman → viloyat mos kelishi
+    # Barcha tillardagi nomlar regions.json dan o'qiladi
     value = str(city or '').lower().strip()
-    if value in ('toshkent shahri', 'toshkent city'):
+    
+    # Toshkent shahri — alohida viloyat emas
+    toshkent_city_terms = (
+        'toshkent shahri', 'tashkent city', 'город ташкент',
+        'ташкент қаласы', 'шаҳри тошканд', 'ташкент шаары', 'tashkent qalasy'
+    )
+    if value in toshkent_city_terms:
         return ''
-    rules = [
-        {'region': 'Andijon viloyati', 'terms': ['andijon', 'xonobod', 'asaka', 'qorasuv', 'baliqchi', 'buloqboshi', 'izboskan', 'jalaquduq', 'marhamat', 'oltinkoʻl', 'oltinkol', 'paxtaobod', 'shahrixon', 'ulugʻnor', 'ulugnor', 'xoʻjaobod', 'xojaobod', 'qoʻrgʻontepa', 'qorgontepa']},
-        {'region': 'Buxoro viloyati', 'terms': ['buxoro', 'kogon', 'olot', 'vobkent', 'gijduvon', 'romitan', 'shofirkon', 'galaosiyo', 'gazli']},
-        {'region': 'Fargʻona viloyati', 'terms': ['fargʻona', 'fargona', 'qoʻqon', 'qoqon', 'margʻilon', 'margilon', 'quvasoy', 'quva', 'rishton', 'yaypan', 'tinchlik', 'oltiariq', 'furqat', 'bogʻdod', 'beshariq', 'dangʻara', 'soʻx', 'sox', 'toshloq', 'uchkoʻprik', 'uchkoprik']},
-        {'region': 'Jizzax viloyati', 'terms': ['jizzax', 'dashtobod', 'arnasoy', 'baxmal', 'doʻstlik', 'dostlik', 'forish', 'gallaorol', 'mirzachoʻl', 'mirzachol', 'paxtakor', 'yangiobod', 'zomin', 'zafarobod', 'zarbdor']},
-        {'region': 'Xorazm viloyati', 'terms': ['xorazm', 'urganch', 'xiva', 'pitnak', 'gurlan', 'shovot', 'bogʻot', 'yangiariq', 'tuproqqalʼa', 'hazorasp', 'yangibozor', 'xonqa']},
-        {'region': 'Namangan viloyati', 'terms': ['namangan', 'chust', 'chartaq', 'kosonsoy', 'uchqoʻrgʻon', 'uchqorgon', 'haqqulobod', 'toʻraqoʻrgʻon', 'toraqorgon', 'pop', 'mingbuloq', 'norin', 'uychi', 'yangiqoʻrgʻon', 'yangiqorgon']},
-        {'region': 'Navoiy viloyati', 'terms': ['navoiy', 'zarafshon', 'uchquduq', 'nurota', 'qiziltepa', 'goʻzgon', 'gozgon', 'karmana', 'konimex', 'navbahor', 'tomdi', 'xatirchi']},
-        {'region': 'Qashqadaryo viloyati', 'terms': ['qarshi', 'shahrisabz', 'kitob', 'koson', 'muborak', 'yakkabogʻ', 'yakkabog', 'gʻuzor', 'guzor', 'kamashi', 'chiroqchi', 'dehqonobod', 'mirishkor', 'kasbi', 'nishon']},
-        {'region': 'Samarqand viloyati', 'terms': ['samarqand', 'kattaqoʻrgʻon', 'kattaqorgon', 'urgut', 'oqtosh', 'bulungʻur', 'jomboy', 'chelak', 'nurobod', 'qoshrabot', 'narpay', 'paxtachi', 'payariq', 'pastdargʻom', 'pastdargom', 'toyloq']},
-        {'region': 'Sirdaryo viloyati', 'terms': ['guliston', 'shirin', 'yangiyer', 'baxt', 'sirdaryo', 'boyovut', 'hovos', 'mirzaobod', 'oqoltin', 'sardoba', 'sayxunobod']},
-        {'region': 'Surxondaryo viloyati', 'terms': ['termiz', 'denov', 'boysun', 'jarqoʻrgʻon', 'jargorgon', 'qumqoʻrgʻon', 'qumqorgon', 'shargʻun', 'shargun', 'sherobod', 'shoʻrchi', 'shorchi', 'angor', 'muzrabot', 'oltinsoy', 'sariosiyo', 'uzun', 'bandixon']},
-        {'region': 'Toshkent viloyati', 'terms': ['toshkent', 'nurafshon', 'angren', 'olmaliq', 'chirchiq', 'ohangaron', 'bekobod', 'yangiyoʻl', 'yangiyol', 'gazalkent', 'keles', 'piskent', 'chinoz', 'boka', 'oqqoʻrgʻon', 'oqqorgon', 'parkent', 'quyi chirchiq', 'oʻrta chirchiq', 'yuqori chirchiq', 'zangiota']},
-        {'region': 'Qoraqalpogʻiston Respublikasi', 'terms': ['nukus', 'beruniy', 'boʻston', 'mangʻit', 'moʻynoq', 'taxiatosh', 'toʻrtkoʻl', 'xalqobod', 'chimboy', 'shumanay', 'xoʻjayli', 'qoʻngʻirot', 'amudaryo', 'kegeyli', 'qonlikoʻl', 'qorauzyak', 'taxtakoʻpir', 'boʻzatov']},
+
+    rules = _get_city_region_rules() + [
+        # ========== QOZOG'ISTON VILOYATLARI (regions.json da yo'q) ==========
+        {'region': 'Astana shahri', 'terms': ['astana', 'nura', 'yesil', 'sariorqa', 'bayqoʻngʻir', 'almaty tumani', 'астана', 'нуринский', 'есильский', 'сарыаркинский', 'байконурский', 'алматинский']},
+        {'region': 'Olmati shahri', 'terms': ['olmati', 'almaty', 'alatau', 'bostandiq', 'jetisu', 'medeu', 'navoiy tumani', 'turgʻisun', 'olmali', 'алматы', 'алатауский', 'бостандык', 'жетісу', 'медеу', 'наурызбай', 'турксиб', 'алмалинский']},
+        {'region': 'Chimkent shahri', 'terms': ['chimkent', 'shymkent', 'qaratau', 'turon', 'yassaviy', 'al-farobiy', 'шымкент', 'чымкент', 'караатау', 'туран', 'яссави', 'аль-фарабийский', 'абайский', 'енбекшинский']},
+        {'region': 'Abay viloyati', 'terms': ['abay', 'semey', 'kurchatov', 'ayagoz', 'besqoragay', 'borodulixa', 'jarma', 'kokpekti', 'urjar', 'oqsuat', 'абай', 'семей', 'курчатов', 'аягоз', 'бескарагай', 'бородулиха', 'жарма', 'кокпекти', 'урджар', 'аксуат']},
+        {'region': 'Oqmo\'la viloyati', 'terms': ['aqmola', 'aqmo\'la', 'kokshetau', 'kokchatov', 'stepnogorsk', 'akkol', 'arshali', 'atbasar', 'birjan sal', 'bulandy', 'burabay', 'egindykol', 'enbekshilder', 'ereymentau', 'jaqsi', 'jarqayin', 'qorgaljin', 'sandaqtau', 'shotandi', 'selonograd', 'tselinograd', 'акмола', 'акмолинская', 'кокшетау', 'степногорск', 'акколь', 'аршалы', 'атбасар', 'буланды', 'бурабай', 'егиндыколь', 'енбекшилдер', 'ерейментау', 'есіль', 'жақсы', 'жарқаин', 'коргалжын', 'сандыктау', 'шортанды', 'целиноград']},
+        {'region': 'Oqto\'ba viloyati', 'terms': ['aktobe', 'aqto\'ba', 'alga', 'bayganin', 'uyil', 'irgiz', 'martuk', 'mugalzhar', 'temir', 'xromtau', 'xobda', 'shalkar', 'qargali', 'актобе', 'актюбинская', 'алга', 'байганин', 'уил', 'иргиз', 'мартук', 'мугалжар', 'темир', 'хромтау', 'хобда', 'шалкар', 'каргали']},
+        {'region': 'Olmati viloyati', 'terms': ['almaty region', 'olmati viloyati', 'qonayev', 'konaev', 'balxash', 'enbekshiqozoq', 'ili', 'qarasay', 'kelgen', 'rayimbek', 'talgar', 'uygur', 'jambul tumani', 'oqsu', 'алматинская', 'алматы облысы', 'конаев', 'балхаш', 'енбекшиказах', 'или', 'карасай', 'кеген', 'райымбек', 'талгар', 'уйгур', 'жамбыл', 'аксу']},
+        {'region': 'Atirau viloyati', 'terms': ['atyrau', 'atirau', 'inder', 'isatay', 'qizilqoga', 'qurmangazi', 'maqat', 'maxambet', 'jilioy', 'атырау', 'атырауская', 'индер', 'исатай', 'кызылкога', 'курмангазы', 'макат', 'махамбет', 'жылыой']},
+        {'region': 'G\'arbiy Qozog\'iston viloyati', 'terms': ['west kazakhstan', 'g\'arbiy qozog\'iston', 'oral', 'uralsk', 'aqjoyiq', 'boreli', 'janagala', 'janibek', 'bayterek', 'kaztalov', 'qaratobe', 'taqqala', 'tasqala', 'terekti', 'shingirlau', 'bokey ordasy', 'западно-казахстанская', 'западный казахстан', 'уральск', 'орал', 'акжаик', 'бурлин', 'жангала', 'жанибек', 'байтерек', 'казталов', 'каратобе', 'таскала', 'теректи', 'шингирлау', 'бокейординский']},
+        {'region': 'Jambul viloyati', 'terms': ['jambyl', 'jambul', 'taraz', 'bayzaq', 'qorday', 'merki', 'moynqum', 'sarysu', 'talas', 'turar rysqulov', 'shu', 'juvali', 'жамбыл', 'жамбылская', 'тараз', 'байзак', 'кордай', 'мерке', 'мойынкум', 'сарысу', 'талас', 'турар рыскулов', 'шу', 'жуалы']},
+        {'region': 'Jetisu viloyati', 'terms': ['zhetysu', 'jetisu', 'taldiqorgan', 'taldiforgon', 'tekeli', 'alakol', 'eskeldi', 'qaratal', 'kerbuloq', 'koksu', 'panfilov', 'sarqand', 'жетісу', 'жетисуская', 'талдыкорган', 'текелі', 'алаколь', 'ескелді', 'каратал', 'кербулак', 'коксу', 'панфилов', 'сарканд']},
+        {'region': 'Qarag\'andi viloyati', 'terms': ['karaganda', 'qaragandi', 'balxash', 'temirtau', 'saran', 'shaxtinsk', 'abay tumani', 'aktogay', 'buqar jirau', 'qarqarali', 'nura tumani', 'osakarov', 'shet', 'караганда', 'карагандинская', 'балхаш', 'темиртау', 'сарань', 'шахтинск', 'актогай', 'бухар-жырау', 'каркаралинский', 'нура', 'осакаров', 'шет']},
+        {'region': 'Qostanay viloyati', 'terms': ['kostanay', 'qostanay', 'arkalyk', 'rudniy', 'lisakovsk', 'alvinsar', 'amangeldi', 'avliyo kol', 'denisov', 'jangeldi', 'jitiqora', 'qamistu', 'qorabaliq', 'qorasu', 'mendigara', 'navruzim', 'suvliqol', 'uzunkol', 'fedorov', 'костанай', 'костанайская', 'аркалык', 'рудный', 'лисаковск', 'алтынсарин', 'амангельды', 'аулиеколь', 'денисов', 'джангельды', 'житикара', 'камысты', 'карабалык', 'карасу', 'мендыкара', 'наурзум', 'сарыколь', 'узунколь', 'федоров']},
+        {'region': 'Qizilo\'rda viloyati', 'terms': ['kyzylorda', 'qizilorada', 'baykonur', 'aral', 'qazali', 'qarmaqshi', 'jalagash', 'sirdaryo tumani', 'shiyli', 'janaqorgan', 'кызылорда', 'кызылординская', 'байконур', 'аральский', 'казалинский', 'кармакшинский', 'жалагашский', 'сырдарьинский', 'шиелийский', 'жанакурганский']},
+        {'region': 'Mangistau viloyati', 'terms': ['mangystau', 'mangistau', 'aqtau', 'janaorzen', 'beyneu', 'qaraqia', 'munaily', 'tupqaragan', 'мангистау', 'мангыстауская', 'актау', 'жанаозен', 'бейнеу', 'каракия', 'мунайлы', 'тупкараган']},
+        {'region': 'Pavlodar viloyati', 'terms': ['pavlodar', 'yekibastuz', 'oqsu shahri', 'aqquly', 'bayanaul', 'jelezin', 'ertis', 'terenkul', 'may tumani', 'sarqamar', 'sharbaqty', 'uspen', 'павлодар', 'павлодарская', 'экибастуз', 'аксу', 'аккулы', 'баянаул', 'железин', 'иртыш', 'теренколь', 'май', 'самарканд', 'щербактин', 'успен']},
+        {'region': 'Shimoliy Qozog\'iston viloyati', 'terms': ['north kazakhstan', 'shimoliy qozogiston', 'petropavl', 'ayirtau', 'aqjar', 'aqqayin', 'gabit musirepov', 'esil tumani', 'magjan jumabayev', 'mamlyut', 'shal aqin', 'tayinsha', 'timiryazev', 'ualixanov', 'qiziljar', 'северо-казахстанская', 'северный казахстан', 'петропавловск', 'айыртауский', 'акжарский', 'аккайынский', 'габита мусрепова', 'магжана жумабаева', 'мамлютский', 'шал акына', 'тайыншинский', 'тимирязев', 'уалиханов', 'кызылжарский']},
+        {'region': 'Turkiston viloyati', 'terms': ['turkistan', 'turkestan', 'aris', 'kentau', 'baydibek', 'jetisay', 'qazigurt', 'keles', 'maktaaral', 'ordabasy', 'otrar', 'sayram', 'sariagash', 'sauran', 'sozaq', 'tole bi', 'tyulkubas', 'shardara', 'туркестан', 'туркестанская', 'арыс', 'кентау', 'байдибек', 'жетисай', 'казыгурт', 'келес', 'мактаарал', 'ордабасы', 'отрар', 'сайрам', 'сарыагаш', 'сауран', 'созак', 'толе би', 'тюлькубас', 'шардара']},
+        {'region': 'Ulitau viloyati', 'terms': ['ulytau', 'ulitau', 'jezkazgan', 'jezqazg\'on', 'satpayev', 'qarajal', 'janaarqa', 'улытау', 'улытауская', 'жезказган', 'сатпаев', 'каражал', 'жанаарка']},
+        {'region': 'Sharqiy Qozog\'iston viloyati', 'terms': ['east kazakhstan', 'sharqiy qozogiston', 'oskemen', 'ust-kamenogorsk', 'ridder', 'altay', 'glubokoye', 'kurshim', 'markakol', 'samarka', 'tarbagatay', 'ulan', 'shemonaixa', 'katonqaragay', 'zaysan', 'восточно-казахстанская', 'восточный казахстан', 'усть-каменогорск', 'өскемен', 'риддер', 'алтай', 'глибокое', 'курчум', 'маркаколь', 'самар', 'тарбагатай', 'улан', 'шемонаиха', 'катон-карагай', 'зайсан']},
     ]
 
     for item in rules:
