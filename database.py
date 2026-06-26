@@ -55,6 +55,15 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'uz'
         """)
 
+        # ===== REGION / DAVLAT MAYDONI =====
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS region TEXT
+        """)
+
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT DEFAULT 'Oʻzbekiston'
+        """)
+
         # Likes
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS likes (
@@ -445,8 +454,8 @@ async def save_user(telegram_id, data):
     conn = await get_db()
     try:
         await conn.execute("""
-            INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, region, country)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (telegram_id) DO UPDATE SET
                 username = EXCLUDED.username,
                 full_name = EXCLUDED.full_name,
@@ -459,6 +468,8 @@ async def save_user(telegram_id, data):
                 goals = EXCLUDED.goals,
                 photo_file_id = EXCLUDED.photo_file_id,
                 photo_base64 = EXCLUDED.photo_base64,
+                region = EXCLUDED.region,
+                country = EXCLUDED.country,
                 is_active = TRUE
         """,
             telegram_id,
@@ -472,7 +483,9 @@ async def save_user(telegram_id, data):
             data.get("zodiac"),
             data.get("goals", []),
             data.get("photo_file_id"),
-            data.get("photo_base64")
+            data.get("photo_base64"),
+            data.get("region"),
+            data.get("country", "Oʻzbekiston")
         )
         return True
     except Exception as e:
@@ -527,8 +540,14 @@ async def search_users(telegram_id, filters):
             idx += 1
 
         if filters.get("city"):
+            # Tuman yoki viloyat bo'yicha ILIKE qidirish
             query += f" AND city ILIKE ${idx}"
             params.append(f"%{filters['city']}%")
+            idx += 1
+
+        if filters.get("country"):
+            query += f" AND country ILIKE ${idx}"
+            params.append(f"%{filters['country']}%")
             idx += 1
 
         if filters.get("goals"):
