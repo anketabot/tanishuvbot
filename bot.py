@@ -2448,6 +2448,71 @@ async def leaderboard_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+# ========== VERIFIKATSIYA API ==========
+async def verify_upload_api(request: web.Request):
+    """
+    Foydalanuvchi selfi yuboradi → avtomatik verified qilinadi.
+    Body: { telegram_id, selfie_base64 }
+    """
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        selfie_b64 = data.get('selfie_base64', '')
+
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id kerak'}, status=400)
+        if not selfie_b64 or len(selfie_b64) < 100:
+            return web.json_response({'success': False, 'error': 'Selfie rasm kerak'}, status=400)
+
+        # Rasm o'lchamini tekshirish (base64 ~ 1.33x asl o'lcham)
+        # Max 8MB asl rasm ≈ ~11MB base64
+        if len(selfie_b64) > 11 * 1024 * 1024:
+            return web.json_response({'success': False, 'error': 'Rasm hajmi juda katta (max 8MB)'}, status=400)
+
+        # Foydalanuvchi mavjudligini tekshirish
+        user = await db.get_user(int(telegram_id))
+        if not user:
+            return web.json_response({'success': False, 'error': 'Foydalanuvchi topilmadi'}, status=404)
+
+        # Avatomatik tasdiqlash va saqlash
+        ok = await db.save_selfie_and_verify(int(telegram_id), selfie_b64)
+        if not ok:
+            return web.json_response({'success': False, 'error': 'Saqlashda xatolik'}, status=500)
+
+        # Telegram orqali xabar yuborish
+        lang = await get_user_lang(int(telegram_id))
+        verify_messages = {
+            'uz': "✅ *Profilingiz muvaffaqiyatli tasdiqlandi!*\n\nEndi profilingizda 💙 ko'k galochka mavjud.",
+            'ru': "✅ *Ваш профиль успешно верифицирован!*\n\nТеперь у вашего профиля есть 💙 синяя галочка.",
+            'en': "✅ *Your profile has been verified!*\n\nYour profile now has a 💙 blue checkmark.",
+        }
+        msg = verify_messages.get(lang, verify_messages['uz'])
+        try:
+            await bot.send_message(int(telegram_id), msg, parse_mode="Markdown")
+        except Exception:
+            pass
+
+        return web.json_response({'success': True, 'is_verified': True})
+
+    except Exception as e:
+        logger.error(f"VERIFY API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def verify_status_api(request: web.Request):
+    """Foydalanuvchining verifikatsiya holatini qaytaradi."""
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id kerak'}, status=400)
+        status = await db.get_verification_status(int(telegram_id))
+        return web.json_response({'success': True, **status})
+    except Exception as e:
+        logger.error(f"VERIFY STATUS xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 # ========== MAIN ==========
 async def main():
     await db.init_db()
@@ -2483,6 +2548,10 @@ async def main():
 
     # Stats / Leaderboard
     app.router.add_post('/api/stats/leaderboard', leaderboard_api)
+
+    # Verifikatsiya
+    app.router.add_post('/api/verify/upload', verify_upload_api)
+    app.router.add_post('/api/verify/status', verify_status_api)
 
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
