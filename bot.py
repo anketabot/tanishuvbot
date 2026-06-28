@@ -751,14 +751,19 @@ async def language_keyboard():
     return builder.as_markup()
 
 
-async def main_menu_keyboard(lang='uz'):
+async def main_menu_keyboard(lang='uz', telegram_id=None):
     """Asosiy menyu klaviaturasi"""
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text=t(lang, 'btn_webapp'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
     builder.row(InlineKeyboardButton(text=t(lang, 'btn_my_profile'), callback_data="show_profile"))
     builder.row(InlineKeyboardButton(text=t(lang, 'btn_search'), callback_data="start_search"))
     builder.row(InlineKeyboardButton(text=t(lang, 'btn_change_lang'), callback_data="change_language"))
-    builder.row(InlineKeyboardButton(text=t(lang, 'btn_group'), url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}"))
+
+    # Guruhga qo'shilish tugmasi faqat erkak foydalanuvchilar uchun chiqadi
+    is_male = await db.is_male_user(telegram_id) if telegram_id else False
+    if is_male:
+        builder.row(InlineKeyboardButton(text=t(lang, 'btn_group'), url=GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{(await bot.me()).username}"))
+
     return builder.as_markup()
 
 
@@ -1046,7 +1051,7 @@ async def start_handler(message: types.Message):
         return
 
     # Til tanlangan bo'lsa, asosiy menyu ko'rsatish
-    keyboard = await main_menu_keyboard(lang)
+    keyboard = await main_menu_keyboard(lang, telegram_id)
     is_female = await db.is_female_user(telegram_id)
     welcome_text = t(lang, 'welcome', name=message.from_user.first_name)
     if not is_female:
@@ -1071,7 +1076,7 @@ async def set_language_callback(callback: types.CallbackQuery):
     await callback.answer(t(lang_code, 'language_changed', language_name=lang_name), show_alert=True)
 
     # Asosiy menyu ko'rsatish
-    keyboard = await main_menu_keyboard(lang_code)
+    keyboard = await main_menu_keyboard(lang_code, callback.from_user.id)
     is_female = await db.is_female_user(callback.from_user.id)
     welcome_text = t(lang_code, 'welcome', name=callback.from_user.first_name)
     if not is_female:
@@ -1393,7 +1398,7 @@ async def _advance_search(callback, lang='uz'):
 async def show_main_menu_callback(callback: types.CallbackQuery):
     lang = await get_user_lang(callback.from_user.id)
     await callback.answer()
-    keyboard = await main_menu_keyboard(lang)
+    keyboard = await main_menu_keyboard(lang, callback.from_user.id)
     await callback.message.answer(t(lang, 'main_menu'), reply_markup=keyboard)
 
 
@@ -1462,7 +1467,7 @@ async def web_app_data_handler(message: types.Message):
 
             success = await db.save_user(message.from_user.id, profile_data)
             if success:
-                keyboard = await main_menu_keyboard(lang)
+                keyboard = await main_menu_keyboard(lang, message.from_user.id)
                 await message.answer(
                     t(lang, 'profile_saved'),
                     parse_mode="Markdown",
