@@ -886,6 +886,13 @@ async def accept_like(telegram_id, from_user):
         if not like:
             return None
 
+        # Qabul qilingan tomon ham like yozuvini qo'shadi — shunda get_pending_likes
+        # funksiyasi bu foydalanuvchini qaytadan "javob berilmagan like" deb hisoblamaydi
+        await conn.execute(
+            "INSERT INTO likes (from_user, to_user) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            telegram_id, from_user
+        )
+
         u1, u2 = min(from_user, telegram_id), max(from_user, telegram_id)
         row = await conn.fetchrow(
             "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
