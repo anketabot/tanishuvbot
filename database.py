@@ -82,8 +82,14 @@ async def init_db():
                 from_user BIGINT NOT NULL,
                 to_user BIGINT NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW(),
+                is_super BOOLEAN DEFAULT FALSE,
                 UNIQUE(from_user, to_user)
             )
+        """)
+
+        # Super like ustunini mavjud jadvalga qo'shish (migration)
+        await conn.execute("""
+            ALTER TABLE likes ADD COLUMN IF NOT EXISTS is_super BOOLEAN DEFAULT FALSE
         """)
 
         # Matches
@@ -751,14 +757,14 @@ async def search_users_by_zodiac(telegram_id, filters):
         await conn.close()
 
 
-async def add_like(from_user, to_user):
+async def add_like(from_user, to_user, is_super=False):
     """Like yuboradi. Faqat mutual like bo'lsagina match yaratiladi.
     Mutual like bo'lsa True, aks holda False qaytaradi."""
     conn = await get_db()
     try:
         await conn.execute(
-            "INSERT INTO likes (from_user, to_user) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            from_user, to_user
+            "INSERT INTO likes (from_user, to_user, is_super) VALUES ($1, $2, $3) ON CONFLICT (from_user, to_user) DO UPDATE SET is_super = EXCLUDED.is_super",
+            from_user, to_user, is_super
         )
         # Mutual like tekshirish
         mutual = await conn.fetchrow(
