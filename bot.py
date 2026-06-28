@@ -2484,6 +2484,10 @@ async def verify_upload_api(request: web.Request):
         verify_messages = {
             'uz': "✅ *Profilingiz muvaffaqiyatli tasdiqlandi!*\n\nEndi profilingizda 💙 ko'k galochka mavjud.",
             'ru': "✅ *Ваш профиль успешно верифицирован!*\n\nТеперь у вашего профиля есть 💙 синяя галочка.",
+            'kk': "✅ *Профиліңіз сәтті расталды!*\n\nПрофиліңізде енді 💙 көк белгі бар.",
+            'ky': "✅ *Профилиңиз ийгиликтүү ырасталды!*\n\nПрофилиңизде эми 💙 көк белги бар.",
+            'kaa': "✅ *Profiliñiz wátiliwshe tastıyıqlandı!*\n\nProfiliñizde 💙 kók belgi bar.",
+            'tg': "✅ *Профили шумо бомуваффақият тасдиқ шуд!*\n\nПрофили шумо акнун 💙 аломати кабуд дорад.",
             'en': "✅ *Your profile has been verified!*\n\nYour profile now has a 💙 blue checkmark.",
         }
         msg = verify_messages.get(lang, verify_messages['uz'])
