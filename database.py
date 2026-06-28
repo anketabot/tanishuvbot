@@ -288,6 +288,21 @@ async def is_female_user(telegram_id):
         await conn.close()
 
 
+async def is_male_user(telegram_id):
+    """Foydalanuvchi erkak ekanligini tekshirish — guruhga qo'shish tugmasi faqat erkaklar uchun chiqadi"""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT gender FROM users WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row and row['gender'] == 'erkak':
+            return True
+        return False
+    finally:
+        await conn.close()
+
+
 async def check_and_increment_limit(telegram_id, limit_type):
     # Ayol foydalanuvchilar uchun hech qanday limit yo'q
     if await is_female_user(telegram_id):
