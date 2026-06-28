@@ -711,7 +711,7 @@ async def search_users_by_zodiac(telegram_id, filters):
 
 
 async def add_like(from_user, to_user):
-    """Like yuboradi. Har doim match yaratiladi (bir tomonlama ham).
+    """Like yuboradi. Faqat mutual like bo'lsagina match yaratiladi.
     Mutual like bo'lsa True, aks holda False qaytaradi."""
     conn = await get_db()
     try:
@@ -719,17 +719,18 @@ async def add_like(from_user, to_user):
             "INSERT INTO likes (from_user, to_user) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             from_user, to_user
         )
-        # Har doim match yaratamiz (chat ochilishi uchun)
-        u1, u2 = min(from_user, to_user), max(from_user, to_user)
-        await conn.execute(
-            "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            u1, u2
-        )
-        # Mutual like tekshirish (match notification uchun)
+        # Mutual like tekshirish
         mutual = await conn.fetchrow(
             "SELECT id FROM likes WHERE from_user = $1 AND to_user = $2",
             to_user, from_user
         )
+        # Faqat mutual bo'lsa match yaratamiz
+        if mutual is not None:
+            u1, u2 = min(from_user, to_user), max(from_user, to_user)
+            await conn.execute(
+                "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                u1, u2
+            )
         return mutual is not None
     finally:
         await conn.close()
