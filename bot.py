@@ -110,6 +110,12 @@ T = {
         'pressed_like': "ham sizni yoqtirdi!",
         'write_username': "@{username} ga yozishingiz mumkin!",
         'no_username': "Bu foydalanuvchining username yo'q.",
+        'like_notify_btn': "💌 *{name}* sizni yoqtirdi!\n\nQabul qilsangiz ikkalangiz chat orqali muloqot qila olasiz.",
+        'super_like_notify_btn': "⭐ *{name}* sizga {sticker}Super Like yubordi!\n\nQabul qilsangiz ikkalangiz chat orqali muloqot qila olasiz.",
+        'btn_accept_like': "✅ Qabul qilish",
+        'btn_reject_like': "❌ Rad etish",
+        'super_like_match_notify': "🎉⭐ *{name}* {sticker}Super Like yubordi va match bo'ldi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
+        'super_like_match_self': "🎉⭐ {sticker}Super Like qabul qilindi! *{name}* sizni ham yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
     },
     'ru': {
         'welcome': "👋 Здравствуйте, {name}!\n\n💙 *Добро пожаловать в бот знакомств!*\n\nЗдесь вы можете найти новых друзей и общаться.",
@@ -186,6 +192,12 @@ T = {
         'pressed_like': "тоже вас лайкнул(а)!",
         'write_username': "Можете написать @{username}!",
         'no_username': "У этого пользователя нет username.",
+        'like_notify_btn': "💌 *{name}* лайкнул(а) вас!\n\nЕсли вы примете — сможете общаться в чате.",
+        'super_like_notify_btn': "⭐ *{name}* отправил(а) вам {sticker}Супер Лайк!\n\nЕсли вы примете — сможете общаться в чате.",
+        'btn_accept_like': "✅ Принять",
+        'btn_reject_like': "❌ Отклонить",
+        'super_like_match_notify': "🎉⭐ *{name}* отправил(а) {sticker}Супер Лайк и это совпадение!\n\nТеперь вы можете начать общение. 💬",
+        'super_like_match_self': "🎉⭐ {sticker}Супер Лайк принят! *{name}* тоже вас лайкнул(а)!\n\nТеперь вы можете начать общение. 💬",
     },
     'kk': {
         'welcome': "👋 Сәлеметсіз бе, {name}!\n\n💙 *Танысу ботына қош келдіңіз!*\n\nМұнда жаңа достар тауып, сөйлесе аласыз.",
@@ -262,6 +274,12 @@ T = {
         'pressed_like': "де сізді ұнатты!",
         'write_username': "@{username} жазуға болады!",
         'no_username': "Бұл пайдаланушының username жоқ.",
+        'like_notify_btn': "💌 *{name}* сізді лайк етті!\n\nҚабылдасаңыз чат арқылы сөйлесе аласыз.",
+        'super_like_notify_btn': "⭐ *{name}* сізге {sticker}Супер Лайк жіберді!\n\nҚабылдасаңыз чат арқылы сөйлесе аласыз.",
+        'btn_accept_like': "✅ Қабылдау",
+        'btn_reject_like': "❌ Қабылдамау",
+        'super_like_match_notify': "🎉⭐ *{name}* {sticker}Супер Лайк жіберді және сәйкестік болды!\n\nЕнді сөйлесе аласыз. 💬",
+        'super_like_match_self': "🎉⭐ {sticker}Супер Лайк қабылданды! *{name}* де сізді ұнатты!\n\nЕнді сөйлесе аласыз. 💬",
     },
     'ky': {
         'welcome': "👋 Саламатсызбы, {name}!\n\n💙 *Таанышу ботуна кош келиңиз!*\n\nБул жерде жаңы досторду таап, баарлаша аласыз.",
@@ -338,6 +356,12 @@ T = {
         'pressed_like': "да сизди жактырды!",
         'write_username': "@{username} жазсаңыз болот!",
         'no_username': "Бул колдонуучунун username жок.",
+        'like_notify_btn': "💌 *{name}* сизди жактырды!\n\nКабыл алсаңыз чат аркылуу баарлаша аласыз.",
+        'super_like_notify_btn': "⭐ *{name}* сизге {sticker}Супер Лайк жөнөттү!\n\nКабыл алсаңыз чат аркылуу баарлаша аласыз.",
+        'btn_accept_like': "✅ Кабыл алуу",
+        'btn_reject_like': "❌ Баш тартуу",
+        'super_like_match_notify': "🎉⭐ *{name}* {sticker}Супер Лайк жөнөттү жана шайкештик болду!\n\nЭми баарлаша аласыз. 💬",
+        'super_like_match_self': "🎉⭐ {sticker}Супер Лайк кабыл алынды! *{name}* да сизди жактырды!\n\nЭми баарлаша аласыз. 💬",
     },
     'kaa': {
         'welcome': "👋 Sálem, {name}!\n\n💙 *Tanısıw botına xosh kelipsiz!*\n\nBul jerde jańa dostlar tabıp, sóylesse alasız.",
@@ -414,6 +438,12 @@ T = {
         'pressed_like': "de sizdi jaqtırdı!",
         'write_username': "@{username} jazsańız boladı!",
         'no_username': "Bul paydalanıwshınıń username joq.",
+        'like_notify_btn': "💌 *{name}* sizdi jaqtırdı!\n\nQabıl alsańız chat arqalı sólese alasız.",
+        'super_like_notify_btn': "⭐ *{name}* sizge {sticker}Super Layk jiberdi!\n\nQabıl alsańız chat arqalı sólese alasız.",
+        'btn_accept_like': "✅ Qabıl alıw",
+        'btn_reject_like': "❌ Qabıl almaslik",
+        'super_like_match_notify': "🎉⭐ *{name}* {sticker}Super Layk jiberdi hám sáykeslik boldı!\n\nEndi sólese alasız. 💬",
+        'super_like_match_self': "🎉⭐ {sticker}Super Layk qabıl alındı! *{name}* de sizdi jaqtırdı!\n\nEndi sólese alasız. 💬",
     },
     'tg': {
         'welcome': "👋 Салом, {name}!\n\n💙 *Ба боти шиносоӣ хуш омадед!*\n\nДар ин ҷо шумо метавонед дӯстони нав пайдо кунед ва гуфтугӯ кунед.",
@@ -490,6 +520,12 @@ T = {
         'pressed_like': "ҳам шуморо лайк кард!",
         'write_username': "Метавонед ба @{username} нависед!",
         'no_username': "Ин истифодабаранда username надорад.",
+        'like_notify_btn': "💌 *{name}* шуморо лайк кард!\n\nАгар қабул кунед — тавассути чат гуфтугӯ карда метавонед.",
+        'super_like_notify_btn': "⭐ *{name}* ба шумо {sticker}Супер Лайк фиристод!\n\nАгар қабул кунед — тавассути чат гуфтугӯ карда метавонед.",
+        'btn_accept_like': "✅ Қабул кардан",
+        'btn_reject_like': "❌ Рад кардан",
+        'super_like_match_notify': "🎉⭐ *{name}* {sticker}Супер Лайк фиристод ва мувофиқат шуд!\n\nАкнун метавонед гуфтугӯ кунед. 💬",
+        'super_like_match_self': "🎉⭐ {sticker}Супер Лайк қабул шуд! *{name}* ҳам шуморо лайк кард!\n\nАкнун метавонед гуфтугӯ кунед. 💬",
     },
     'en': {
         'welcome': "👋 Hello, {name}!\n\n💙 *Welcome to the Friendship & Dating Bot!*\n\nHere you can find new friends and chat.",
@@ -566,6 +602,12 @@ T = {
         'pressed_like': "liked you too!",
         'write_username': "You can message @{username}!",
         'no_username': "This user doesn't have a username.",
+        'like_notify_btn': "💌 *{name}* liked you!\n\nIf you accept, you can chat together.",
+        'super_like_notify_btn': "⭐ *{name}* sent you a {sticker}Super Like!\n\nIf you accept, you can chat together.",
+        'btn_accept_like': "✅ Accept",
+        'btn_reject_like': "❌ Decline",
+        'super_like_match_notify': "🎉⭐ *{name}* sent a {sticker}Super Like and it's a match!\n\nYou can start chatting now. 💬",
+        'super_like_match_self': "🎉⭐ {sticker}Super Like accepted! *{name}* liked you back!\n\nYou can start chatting now. 💬",
     },
 }
 
@@ -1617,6 +1659,75 @@ async def web_app_data_handler(message: types.Message):
         await message.answer(t(await get_user_lang(message.from_user.id), 'save_error'))
 
 
+@dp.callback_query(F.data.startswith("accept_like_"))
+async def accept_like_callback(callback: types.CallbackQuery):
+    """Foydalanuvchi botdan like-ni qabul qilganda"""
+    lang = await get_user_lang(callback.from_user.id)
+    try:
+        from_user = int(callback.data.replace("accept_like_", ""))
+    except ValueError:
+        await callback.answer("Xatolik", show_alert=True)
+        return
+
+    match_id = await db.accept_like(callback.from_user.id, from_user)
+    if match_id:
+        to_data = await db.get_user(callback.from_user.id)
+        from_data = await db.get_user(from_user)
+        # Pending xabarlarni chat ga o'tkazish
+        try:
+            await db.deliver_pending_messages_to_match(from_user, callback.from_user.id)
+        except Exception as e:
+            logger.error(f"Deliver pending messages error: {e}")
+        if to_data and from_data:
+            try:
+                from_lang = await get_user_lang(from_user)
+                await bot.send_message(
+                    from_user,
+                    t(from_lang, 'like_accepted', name=to_data['full_name']),
+                    parse_mode="Markdown"
+                )
+                await callback.message.edit_text(
+                    t(lang, 'chat_started', name=from_data['full_name']),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Accept like notify error: {e}")
+        await callback.answer(t(lang, 'chat_started', name=(from_data or {}).get('full_name', '')), show_alert=False)
+    else:
+        await callback.answer(t(lang, 'like_not_found'), show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("reject_like_"))
+async def reject_like_callback(callback: types.CallbackQuery):
+    """Foydalanuvchi botdan like-ni rad etganda"""
+    lang = await get_user_lang(callback.from_user.id)
+    try:
+        from_user = int(callback.data.replace("reject_like_", ""))
+    except ValueError:
+        await callback.answer("Xatolik", show_alert=True)
+        return
+
+    rejected = await db.reject_like(callback.from_user.id, from_user)
+    if rejected:
+        from_data = await db.get_user(from_user)
+        to_data = await db.get_user(callback.from_user.id)
+        if from_data and to_data:
+            try:
+                from_lang = await get_user_lang(from_user)
+                await bot.send_message(
+                    from_user,
+                    t(from_lang, 'rejected', name=to_data['full_name']),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Reject like notify error: {e}")
+        try:
+            await callback.message.edit_text(t(lang, 'rejected', name=(from_data or {}).get('full_name', '')))
+        except Exception:
+            pass
+    await callback.answer()
+
+
 @dp.callback_query(F.data.startswith("like_"))
 async def like_callback(callback: types.CallbackQuery):
     lang = await get_user_lang(callback.from_user.id)
@@ -2068,49 +2179,54 @@ async def like_send_api(request):
                 try:
                     to_lang = await get_user_lang(to_user)
                     from_lang = await get_user_lang(from_user)
-                    super_like_label = t(from_lang, 'super_like_label') if super_like else t(from_lang, 'match_label')
+                    sticker_part = f"{sticker} " if sticker else "⭐ "
 
-                    await bot.send_message(
-                        int(to_user),
-                        f"{super_like_label}{from_user_data['full_name']} "
-                        + (t(to_lang, 'pressed_super_like') if super_like else t(to_lang, 'pressed_like'))
-                        + (t(to_lang, 'super_like_note', sticker=sticker) if super_like and sticker else
-                           t(to_lang, 'super_like_note_default') if super_like else " ")
-                        + "\n\nEndi muloqot boshlashingiz mumkin.",
-                        parse_mode="Markdown"
-                    )
-                    await bot.send_message(
-                        int(from_user),
-                        f"{super_like_label}{to_user_data['full_name']} "
-                        + t(from_lang, 'pressed_like')
-                        + (f"\n\n{sticker} Super Like yuborildi." if super_like and sticker else " ")
-                        + "\n\nEndi muloqot boshlashingiz mumkin.",
-                        parse_mode="Markdown"
-                    )
+                    if super_like:
+                        # to_user ga: X Super Like bilan match bo'ldi
+                        to_msg = t(to_lang, 'super_like_match_notify',
+                                   sticker=sticker_part, name=from_user_data['full_name'])
+                        # from_user ga: match bo'ldi
+                        from_msg = t(from_lang, 'super_like_match_self',
+                                     sticker=sticker_part, name=to_user_data['full_name'])
+                    else:
+                        to_msg = t(to_lang, 'match', name=from_user_data['full_name'])
+                        from_msg = t(from_lang, 'match', name=to_user_data['full_name'])
+
+                    await bot.send_message(int(to_user), to_msg, parse_mode="Markdown")
+                    await bot.send_message(int(from_user), from_msg, parse_mode="Markdown")
                 except Exception as e:
                     logger.error(f"Match notify error: {e}")
             return web.json_response({'success': True, 'match': True, 'match_id': match_id, 'super_like': super_like})
         else:
-            # Bir tomonlama like — qabul qiluvchiga bildirishnoma, lekin match_id bor (chat ochiladi)
+            # Bir tomonlama like — qabul qiluvchiga bildirishnoma + Qabul/Rad tugmalari
             if to_user_data and from_user_data:
                 try:
                     to_lang = await get_user_lang(to_user)
+                    sender_name = from_user_data['full_name']
                     if super_like:
-                        msg = (
-                            f"⭐ *{from_user_data['full_name']}* " + t(to_lang, 'pressed_super_like')
-                            + (t(to_lang, 'super_like_note', sticker=sticker) if sticker else t(to_lang, 'super_like_note_default'))
-                            + "\n\nWeb App'dagi Chat bo'limini tekshiring."
-                        )
+                        # Super like — emoji sticker bilan xabar
+                        sticker_part = f"{sticker} " if sticker else "⭐ "
+                        msg = t(to_lang, 'super_like_notify_btn',
+                                sticker=sticker_part, name=sender_name)
                     else:
-                        msg = (
-                            f"💌 *{from_user_data['full_name']}* " + t(to_lang, 'pressed_like')
-                            + "\n\nWeb App'dagi Chat bo'limini tekshiring."
-                        )
-                    await bot.send_message(int(to_user), msg, parse_mode="Markdown")
+                        msg = t(to_lang, 'like_notify_btn', name=sender_name)
+
+                    # Inline accept/reject tugmalar (har ikki holatda ham)
+                    kb = InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(
+                            text=t(to_lang, 'btn_accept_like'),
+                            callback_data=f"accept_like_{from_user}"
+                        ),
+                        InlineKeyboardButton(
+                            text=t(to_lang, 'btn_reject_like'),
+                            callback_data=f"reject_like_{from_user}"
+                        ),
+                    ]])
+                    await bot.send_message(int(to_user), msg, parse_mode="Markdown", reply_markup=kb)
                 except Exception as e:
                     logger.error(f"Like notification error: {e}")
-            # match_id mavjud — frontend chat ochishi uchun
-            return web.json_response({'success': True, 'match': True, 'match_id': match_id, 'super_like': super_like})
+            # Match hali yaratilmagan — frontend chatni ochmasin
+            return web.json_response({'success': True, 'match': False, 'match_id': None, 'super_like': super_like})
     except Exception as e:
         logger.error(f"LIKE SEND API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
