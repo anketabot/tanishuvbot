@@ -64,6 +64,17 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT DEFAULT 'Oʻzbekiston'
         """)
 
+        # ===== VERIFIKATSIYA =====
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE
+        """)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS selfie_base64 TEXT
+        """)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP
+        """)
+
         # Likes
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS likes (
@@ -886,13 +897,6 @@ async def accept_like(telegram_id, from_user):
         if not like:
             return None
 
-        # Qabul qilingan tomon ham like yozuvini qo'shadi — shunda get_pending_likes
-        # funksiyasi bu foydalanuvchini qaytadan "javob berilmagan like" deb hisoblamaydi
-        await conn.execute(
-            "INSERT INTO likes (from_user, to_user) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            telegram_id, from_user
-        )
-
         u1, u2 = min(from_user, telegram_id), max(from_user, telegram_id)
         row = await conn.fetchrow(
             "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
@@ -1192,5 +1196,40 @@ async def record_group_join(telegram_id, invited_by=None):
         """, telegram_id, invited_by)
     except Exception:
         pass
+    finally:
+        await conn.close()
+
+# ========== VERIFIKATSIYA FUNKSIYALARI ==========
+
+async def save_selfie_and_verify(telegram_id: int, selfie_base64: str):
+    """Selfieni saqlaydi va foydalanuvchini verified deb belgilaydi (avtomatik)."""
+    conn = await get_db()
+    try:
+        await conn.execute("""
+            UPDATE users
+            SET selfie_base64 = $1,
+                is_verified = TRUE,
+                verified_at = NOW()
+            WHERE telegram_id = $2
+        """, selfie_base64, telegram_id)
+        return True
+    except Exception as e:
+        return False
+    finally:
+        await conn.close()
+
+
+async def get_verification_status(telegram_id: int):
+    """Foydalanuvchining verifikatsiya holatini qaytaradi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("""
+            SELECT is_verified, verified_at FROM users WHERE telegram_id = $1
+        """, telegram_id)
+        if row:
+            return {'is_verified': row['is_verified'], 'verified_at': row['verified_at']}
+        return {'is_verified': False, 'verified_at': None}
+    except Exception:
+        return {'is_verified': False, 'verified_at': None}
     finally:
         await conn.close()
