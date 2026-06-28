@@ -2306,10 +2306,7 @@ async def like_send_api(request):
                     if sender_about:
                         extra_lines.append(f"💬 {sender_about}")
                     if extra_lines:
-                        msg += "
-
-" + "
-".join(extra_lines)
+                        msg += "\n\n" + "\n".join(extra_lines)
 
                     # Inline accept/reject tugmalar (har ikki holatda ham)
                     kb = InlineKeyboardMarkup(inline_keyboard=[[
