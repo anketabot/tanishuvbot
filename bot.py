@@ -892,6 +892,20 @@ def format_location_label(city=''):
     return city_text or 'Joy ko\'rsatilmagan'
 
 
+def escape_md(text):
+    """Telegram 'Markdown' (legacy) rejimida maxsus belgilarni xavfsiz qilish.
+    Foydalanuvchi kiritgan matnda (ism, about va h.k.) *, _, ` yoki [ belgilari
+    bo'lsa, Telegram entity'ni parslay olmay xato qaytaradi (can't find end of
+    the entity). Shu sababli bunday matnlarni Markdown ga qo'shishdan oldin
+    albatta shu funksiya orqali o'tkazish kerak."""
+    if text is None:
+        return ""
+    text = str(text)
+    for ch in ('\\', '_', '*', '`', '['):
+        text = text.replace(ch, '\\' + ch)
+    return text
+
+
 def format_user_card(user, lang='uz'):
     gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
     zodiac_text = user.get("zodiac") or t(lang, 'not_specified')
@@ -900,16 +914,16 @@ def format_user_card(user, lang='uz'):
     interests_text = ', '.join(interests) if interests else t(lang, 'not_specified')
 
     lines = [
-        f"{gender_icon} *{user['full_name']}*",
+        f"{gender_icon} *{escape_md(user['full_name'])}*",
         f"🎂 {t(lang, 'age')}: {user['age']}",
-        f"📍 {t(lang, 'city')}: {format_location_label(user.get('city'))}",
-        f"⭐ {t(lang, 'zodiac')}: {zodiac_text}",
-        f"🎯 {t(lang, 'interests')}: {interests_text}",
+        f"📍 {t(lang, 'city')}: {escape_md(format_location_label(user.get('city')))}",
+        f"⭐ {t(lang, 'zodiac')}: {escape_md(zodiac_text)}",
+        f"🎯 {t(lang, 'interests')}: {escape_md(interests_text)}",
     ]
     if about_text:
         lines.append('')
         lines.append(f"📝 {t(lang, 'about')}:")
-        lines.append(about_text)
+        lines.append(escape_md(about_text))
 
     return "\n".join(lines)
 
@@ -976,9 +990,23 @@ async def show_search_candidate(chat, user_id, index, lang='uz'):
             )
         except Exception as e:
             logger.error(f"Photo send error: {e}")
-            await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
+            try:
+                await chat.answer_photo(photo=photo, caption=text, reply_markup=builder.as_markup())
+            except Exception as e2:
+                logger.error(f"Photo send (plain) error: {e2}")
+                try:
+                    await chat.answer(text, reply_markup=builder.as_markup())
+                except Exception as e3:
+                    logger.error(f"Text send (plain) error: {e3}")
     else:
-        await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
+        try:
+            await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
+        except Exception as e:
+            logger.error(f"Text send error: {e}")
+            try:
+                await chat.answer(text, reply_markup=builder.as_markup())
+            except Exception as e2:
+                logger.error(f"Text send (plain) error: {e2}")
 
 
 @dp.my_chat_member()
@@ -1150,21 +1178,31 @@ async def show_profile_handler(message_or_callback):
                        super_likes=limit_status['super_likes_used'])
 
     text = (
-        f"{gender_icon} *{user['full_name']}*\n"
+        f"{gender_icon} *{escape_md(user['full_name'])}*\n"
         f"🎂 {t(lang, 'age')}: {user['age']}\n"
-        f"📍 {t(lang, 'city')}: {format_location_label(user.get('city'))}\n"
-        f"⭐ {t(lang, 'zodiac')}: {zodiac_text}\n"
-        f"📝 {t(lang, 'about')}: {about_text}\n"
-        f"❤️ {t(lang, 'goals')}: {goals_text}\n"
-        f"🎯 {t(lang, 'interests')}: {interests_text}"
+        f"📍 {t(lang, 'city')}: {escape_md(format_location_label(user.get('city')))}\n"
+        f"⭐ {t(lang, 'zodiac')}: {escape_md(zodiac_text)}\n"
+        f"📝 {t(lang, 'about')}: {escape_md(about_text)}\n"
+        f"❤️ {t(lang, 'goals')}: {escape_md(goals_text)}\n"
+        f"🎯 {t(lang, 'interests')}: {escape_md(interests_text)}"
         f"{limit_text}"
     )
 
     photo = get_photo_input(user)
-    if photo:
-        await send_photo(photo, caption=text, parse_mode="Markdown")
-    else:
-        await send_func(text, parse_mode="Markdown")
+    try:
+        if photo:
+            await send_photo(photo, caption=text, parse_mode="Markdown")
+        else:
+            await send_func(text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Show profile send error: {e}")
+        try:
+            if photo:
+                await send_photo(photo, caption=text)
+            else:
+                await send_func(text)
+        except Exception as e2:
+            logger.error(f"Show profile send (plain) error: {e2}")
 
 
 @dp.message(F.text.in_([
@@ -1492,14 +1530,14 @@ async def web_app_data_handler(message: types.Message):
             if is_match:
                 if to_user_data and my_data:
                     await message.answer(
-                        t(lang, 'match', name=to_user_data['full_name']),
+                        t(lang, 'match', name=escape_md(to_user_data['full_name'])),
                         parse_mode="Markdown"
                     )
                     try:
                         to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            t(to_lang, 'match', name=my_data['full_name']),
+                            t(to_lang, 'match', name=escape_md(my_data['full_name'])),
                             parse_mode="Markdown"
                         )
                     except Exception as e:
@@ -1513,7 +1551,7 @@ async def web_app_data_handler(message: types.Message):
                         to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            t(to_lang, 'like_notify', name=my_data['full_name']),
+                            t(to_lang, 'like_notify', name=escape_md(my_data['full_name'])),
                             parse_mode="Markdown"
                         )
                     except Exception as e:
@@ -1538,11 +1576,11 @@ async def web_app_data_handler(message: types.Message):
                         to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            t(to_lang, 'super_like_match', name=my_data['full_name']),
+                            t(to_lang, 'super_like_match', name=escape_md(my_data['full_name'])),
                             parse_mode="Markdown"
                         )
                         await message.answer(
-                            t(lang, 'super_like_match', name=to_user_data['full_name']),
+                            t(lang, 'super_like_match', name=escape_md(to_user_data['full_name'])),
                             parse_mode="Markdown"
                         )
                     except Exception as e:
@@ -1553,7 +1591,7 @@ async def web_app_data_handler(message: types.Message):
                         to_lang = await get_user_lang(to_user)
                         await bot.send_message(
                             to_user,
-                            t(to_lang, 'super_like_notify', name=my_data['full_name']),
+                            t(to_lang, 'super_like_notify', name=escape_md(my_data['full_name'])),
                             parse_mode="Markdown"
                         )
                     except Exception as e:
@@ -1585,8 +1623,8 @@ async def web_app_data_handler(message: types.Message):
                         await bot.send_message(
                             to_user,
                             t(to_lang, 'new_message',
-                              name=message.from_user.first_name,
-                              text=message_text[:100]),
+                              name=escape_md(message.from_user.first_name),
+                              text=escape_md(message_text[:100])),
                             parse_mode="Markdown"
                         )
                     except Exception as e:
@@ -1629,11 +1667,11 @@ async def web_app_data_handler(message: types.Message):
                 interests_text = ", ".join(u["interests"]) if u["interests"] else "—"
 
                 text = (
-                    f"{gender_icon} *{u['full_name']}*\n"
+                    f"{gender_icon} *{escape_md(u['full_name'])}*\n"
                     f"🎂 {t(lang, 'age')}: {u['age']}\n"
-                    f"📍 {t(lang, 'city')}: {u['city']}\n"
-                    f"❤️ {t(lang, 'goals')}: {goals_text}\n"
-                    f"🎯 {t(lang, 'interests')}: {interests_text}"
+                    f"📍 {t(lang, 'city')}: {escape_md(u['city'])}\n"
+                    f"❤️ {t(lang, 'goals')}: {escape_md(goals_text)}\n"
+                    f"🎯 {t(lang, 'interests')}: {escape_md(interests_text)}"
                 )
 
                 builder = InlineKeyboardBuilder()
@@ -1688,11 +1726,11 @@ async def accept_like_callback(callback: types.CallbackQuery):
                 from_lang = await get_user_lang(from_user)
                 await bot.send_message(
                     from_user,
-                    t(from_lang, 'like_accepted', name=to_data['full_name']),
+                    t(from_lang, 'like_accepted', name=escape_md(to_data['full_name'])),
                     parse_mode="Markdown"
                 )
                 await callback.message.edit_text(
-                    t(lang, 'chat_started', name=from_data['full_name']),
+                    t(lang, 'chat_started', name=escape_md(from_data['full_name'])),
                     parse_mode="Markdown"
                 )
             except Exception as e:
@@ -1721,7 +1759,7 @@ async def reject_like_callback(callback: types.CallbackQuery):
                 from_lang = await get_user_lang(from_user)
                 await bot.send_message(
                     from_user,
-                    t(from_lang, 'rejected', name=to_data['full_name']),
+                    t(from_lang, 'rejected', name=escape_md(to_data['full_name'])),
                     parse_mode="Markdown"
                 )
             except Exception as e:
@@ -1965,12 +2003,12 @@ async def accept_like_api(request):
                     from_lang = await get_user_lang(int(from_user))
                     await bot.send_message(
                         int(from_user),
-                        t(from_lang, 'like_accepted', name=to_data['full_name']),
+                        t(from_lang, 'like_accepted', name=escape_md(to_data['full_name'])),
                         parse_mode="Markdown"
                     )
                     await bot.send_message(
                         int(telegram_id),
-                        t(to_lang, 'chat_started', name=from_data['full_name']),
+                        t(to_lang, 'chat_started', name=escape_md(from_data['full_name'])),
                         parse_mode="Markdown"
                     )
                 except Exception as e:
@@ -1999,7 +2037,7 @@ async def reject_like_api(request):
                     from_lang = await get_user_lang(int(from_user))
                     await bot.send_message(
                         int(from_user),
-                        t(from_lang, 'rejected', name=to_data['full_name']),
+                        t(from_lang, 'rejected', name=escape_md(to_data['full_name'])),
                         parse_mode="Markdown"
                     )
                 except Exception as e:
@@ -2122,10 +2160,10 @@ async def send_pending_message_api(request):
 
         try:
             to_lang = await get_user_lang(to_user)
-            sender_name = from_user_data.get('full_name', 'Foydalanuvchi')
+            sender_name = escape_md(from_user_data.get('full_name', 'Foydalanuvchi'))
             notify_msg = (
                 f"💬 *{sender_name}* sizga xabar yubordi:\n\n"
-                f"_{message}_\n\n"
+                f"_{escape_md(message)}_\n\n"
                 f"Javob berish uchun Web App'dagi Chat bo'limini tekshiring."
             )
             await bot.send_message(int(to_user), notify_msg, parse_mode="Markdown")
@@ -2189,13 +2227,13 @@ async def like_send_api(request):
                     if super_like:
                         # to_user ga: X Super Like bilan match bo'ldi
                         to_msg = t(to_lang, 'super_like_match_notify',
-                                   sticker=sticker_part, name=from_user_data['full_name'])
+                                   sticker=sticker_part, name=escape_md(from_user_data['full_name']))
                         # from_user ga: match bo'ldi
                         from_msg = t(from_lang, 'super_like_match_self',
-                                     sticker=sticker_part, name=to_user_data['full_name'])
+                                     sticker=sticker_part, name=escape_md(to_user_data['full_name']))
                     else:
-                        to_msg = t(to_lang, 'match', name=from_user_data['full_name'])
-                        from_msg = t(from_lang, 'match', name=to_user_data['full_name'])
+                        to_msg = t(to_lang, 'match', name=escape_md(from_user_data['full_name']))
+                        from_msg = t(from_lang, 'match', name=escape_md(to_user_data['full_name']))
 
                     await bot.send_message(int(to_user), to_msg, parse_mode="Markdown")
                     await bot.send_message(int(from_user), from_msg, parse_mode="Markdown")
@@ -2207,7 +2245,7 @@ async def like_send_api(request):
             if to_user_data and from_user_data:
                 try:
                     to_lang = await get_user_lang(to_user)
-                    sender_name = from_user_data['full_name']
+                    sender_name = escape_md(from_user_data['full_name'])
                     if super_like:
                         # Super like — emoji sticker bilan xabar
                         sticker_part = f"{sticker} " if sticker else "⭐ "
