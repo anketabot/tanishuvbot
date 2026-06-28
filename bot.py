@@ -2239,15 +2239,15 @@ async def like_send_api(request):
                 'message': f"Kunlik {limit_type} limitingiz tugadi!"
             }, status=403)
 
-        # add_like endi har doim match yaratadi, mutual=True bo'lsa ikki tomonlama
+        # add_like — mutual bo'lsa match yaratiladi, aks holda faqat like saqlanadi
         is_mutual = await db.add_like(from_user, to_user)
         if super_like:
             await db.increment_super_like_usage(from_user)
 
-        # Match ID ni olamiz (har doim bo'ladi endi)
-        match_id = await db.get_match_id(from_user, to_user)
+        # Match ID ni faqat mutual bo'lsa olamiz
+        match_id = await db.get_match_id(from_user, to_user) if is_mutual else None
 
-        # Pending xabarlarni match chat ga o'tkazamiz
+        # Pending xabarlarni match chat ga o'tkazamiz (faqat mutual bo'lsa)
         if match_id:
             await db.deliver_pending_messages_to_match(from_user, to_user)
 
