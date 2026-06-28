@@ -177,6 +177,21 @@ async def init_db():
             )
         """)
 
+        # MIGRATION: Bir tomonlama like asosida yaratilgan "yetim" matchlarni o'chirish.
+        # Match faqat ikki tomonlama like bo'lganda yaratilishi kerak.
+        # Bu avvalgi versiyada noto'g'ri yaratilgan matchlarni tozalaydi.
+        await conn.execute("""
+            DELETE FROM matches
+            WHERE NOT EXISTS (
+                SELECT 1 FROM likes l1
+                WHERE l1.from_user = matches.user1 AND l1.to_user = matches.user2
+            )
+            OR NOT EXISTS (
+                SELECT 1 FROM likes l2
+                WHERE l2.from_user = matches.user2 AND l2.to_user = matches.user1
+            )
+        """)
+
     finally:
         await conn.close()
 
@@ -851,9 +866,8 @@ async def get_pending_likes(telegram_id):
             JOIN users u ON u.telegram_id = l.from_user
             WHERE l.to_user = $1
             AND NOT EXISTS (
-                SELECT 1 FROM matches m
-                WHERE (m.user1 = l.from_user AND m.user2 = l.to_user)
-                OR (m.user1 = l.to_user AND m.user2 = l.from_user)
+                SELECT 1 FROM likes l2
+                WHERE l2.from_user = $1 AND l2.to_user = l.from_user
             )
             ORDER BY l.created_at DESC
         """, telegram_id)
