@@ -1423,7 +1423,7 @@ async def search_super_like_callback(callback: types.CallbackQuery):
         await callback.answer(t(lang, 'limit_exceeded_super'), show_alert=True)
         return
 
-    is_match = await db.add_like(callback.from_user.id, to_user)
+    is_match = await db.add_like(callback.from_user.id, to_user, is_super=True)
     await db.increment_super_like_usage(callback.from_user.id)
     to_user_data = await db.get_user(to_user)
     my_data = await db.get_user(callback.from_user.id)
@@ -2240,7 +2240,7 @@ async def like_send_api(request):
             }, status=403)
 
         # add_like — mutual bo'lsa match yaratiladi, aks holda faqat like saqlanadi
-        is_mutual = await db.add_like(from_user, to_user)
+        is_mutual = await db.add_like(from_user, to_user, is_super=super_like)
         if super_like:
             await db.increment_super_like_usage(from_user)
 
@@ -2398,11 +2398,13 @@ async def leaderboard_api(request):
     try:
         conn = await db.get_db()
         try:
+            # Haftalik TOP: faqat shu haftaning dushanbasidan boshlab hisoblash
             most_active = await conn.fetch("""
                 SELECT u.telegram_id, u.full_name, u.photo_base64,
                        COUNT(l.id) AS count
                 FROM users u
                 LEFT JOIN likes l ON l.from_user = u.telegram_id
+                    AND l.created_at >= date_trunc('week', NOW())
                 WHERE u.is_active = TRUE
                 GROUP BY u.telegram_id, u.full_name, u.photo_base64
                 ORDER BY count DESC
@@ -2413,19 +2415,34 @@ async def leaderboard_api(request):
                        COUNT(l.id) AS count
                 FROM users u
                 LEFT JOIN likes l ON l.to_user = u.telegram_id
+                    AND l.created_at >= date_trunc('week', NOW())
                 WHERE u.is_active = TRUE
                 GROUP BY u.telegram_id, u.full_name, u.photo_base64
                 ORDER BY count DESC
                 LIMIT 10
             """)
+            # Haftalik Super Like TOP: likes jadvalidagi is_super=TRUE yozuvlaridan
             top_super_liked = await conn.fetch("""
-                SELECT telegram_id, full_name, photo_base64,
-                       COALESCE(super_likes_used, 0) AS count
-                FROM users
-                WHERE is_active = TRUE
-                ORDER BY super_likes_used DESC
+                SELECT u.telegram_id, u.full_name, u.photo_base64,
+                       COUNT(l.id) AS count
+                FROM users u
+                LEFT JOIN likes l ON l.to_user = u.telegram_id
+                    AND l.is_super = TRUE
+                    AND l.created_at >= date_trunc('week', NOW())
+                WHERE u.is_active = TRUE
+                GROUP BY u.telegram_id, u.full_name, u.photo_base64
+                ORDER BY count DESC
                 LIMIT 10
             """)
+
+            # Haftaning qolgan vaqtini hisoblash (dushanba boshidan)
+            import datetime
+            now = datetime.datetime.utcnow()
+            days_until_monday = (7 - now.weekday()) % 7 or 7
+            next_monday = now.replace(hour=0, minute=0, second=0, microsecond=0) + datetime.timedelta(days=days_until_monday)
+            seconds_until_reset = int((next_monday - now).total_seconds())
+            week_start = (now - datetime.timedelta(days=now.weekday())).strftime('%Y-%m-%d')
+
         finally:
             await conn.close()
 
@@ -2442,6 +2459,9 @@ async def leaderboard_api(request):
             'most_active': [row_to_dict(r) for r in most_active],
             'top_liked': [row_to_dict(r) for r in top_liked],
             'top_super_liked': [row_to_dict(r) for r in top_super_liked],
+            'weekly': True,
+            'week_start': week_start,
+            'seconds_until_reset': seconds_until_reset,
         })
     except Exception as e:
         logger.error(f"LEADERBOARD API xatolik: {e}", exc_info=True)
