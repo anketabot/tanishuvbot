@@ -1573,12 +1573,8 @@ async def search_gender_callback(callback: types.CallbackQuery):
         if my_gender:
             filters["exclude_gender"] = my_gender
     else:
-        # Aniq jins tanlangan: shu jinsni qidir
-        # Agar o'zining jinsini tanlagan bo'lsa → qarama-qarshi jinsni qidir
-        if my_gender and gender_value == my_gender:
-            filters["gender"] = 'ayol' if my_gender == 'erkak' else 'erkak'
-        else:
-            filters["gender"] = gender_value
+        # Aniq jins tanlangan: to'g'ridan-to'g'ri filtr qo'llanadi
+        filters["gender"] = gender_value
 
     # Burj moslik foizi uchun
     filters["searcher_zodiac_key"] = my_zodiac_key
