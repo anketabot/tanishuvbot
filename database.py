@@ -591,19 +591,15 @@ async def search_users(telegram_id, filters):
         params = [excluded, searcher_is_serious]
         idx = 3
 
-        # Xuddi jins bloki: qidirayotgan foydalanuvchi jinsi bilan bir xil bo'lganlarni chiqarmaslik
-        if searcher_gender:
-            query += f" AND gender != ${idx}"
-            params.append(searcher_gender)
+        # Jins filtri: aniq gender= berilgan bo'lsa uni ishlatamiz
+        # exclude_gender= berilgan bo'lsa (barchasi holati) xuddi jinsdagilarni chiqaramiz
+        if filters.get("gender"):
+            query += f" AND gender = ${idx}"
+            params.append(filters["gender"])
             idx += 1
         elif exclude_gender:
             query += f" AND gender != ${idx}"
             params.append(exclude_gender)
-            idx += 1
-
-        if filters.get("gender"):
-            query += f" AND gender = ${idx}"
-            params.append(filters["gender"])
             idx += 1
 
         if filters.get("age_from"):
