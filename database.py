@@ -560,39 +560,6 @@ async def get_user(telegram_id):
         await conn.close()
 
 
-ZODIAC_COMPAT = {
-    "qoy":         ["arslon", "oqotar", "egizak", "qovga"],
-    "buzoq":       ["sunbula", "qisqichbaqa", "tarozi", "baliq"],
-    "egizak":      ["tarozi", "qovga", "qoy", "arslon"],
-    "qisqichbaqa": ["chayon", "baliq", "buzoq", "sunbula"],
-    "arslon":      ["qoy", "oqotar", "egizak", "tarozi"],
-    "sunbula":     ["buzoq", "qisqichbaqa", "tarozi", "chayon"],
-    "tarozi":      ["egizak", "qovga", "arslon", "oqotar"],
-    "chayon":      ["qisqichbaqa", "baliq", "sunbula", "tog_echkisi"],
-    "oqotar":      ["qoy", "arslon", "tarozi", "qovga"],
-    "tog_echkisi": ["buzoq", "sunbula", "chayon", "baliq"],
-    "qovga":       ["egizak", "tarozi", "oqotar", "qoy"],
-    "baliq":       ["qisqichbaqa", "chayon", "buzoq", "tog_echkisi"],
-}
-
-def zodiac_compatibility_percent(z1_key, z2_key):
-    """Ikki burj o'rtasidagi moslik foizini qaytaradi (45-98%)."""
-    if not z1_key or not z2_key:
-        return None
-    if z1_key == z2_key:
-        return 72
-    compat = ZODIAC_COMPAT.get(z1_key, [])
-    if z2_key == compat[0] if compat else False:
-        return 98
-    elif z2_key in (compat[1:2] if len(compat) > 1 else []):
-        return 91
-    elif z2_key in (compat[2:3] if len(compat) > 2 else []):
-        return 84
-    elif z2_key in (compat[3:] if len(compat) > 3 else []):
-        return 78
-    else:
-        return 52
-
 async def search_users(telegram_id, filters):
     conn = await get_db()
     try:
@@ -602,14 +569,17 @@ async def search_users(telegram_id, filters):
         )
         excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
 
-        # Qidirayotgan foydalanuvchining ma'lumotlari
         searcher_goals = filters.pop('searcher_goals', []) or []
         searcher_is_serious = 'goal_jiddiy' in searcher_goals
-        searcher_zodiac_key = filters.pop('searcher_zodiac_key', None)
+        # Jins va burj — moslik foizi va xuddi jins bloklash uchun
         searcher_gender = filters.pop('searcher_gender', None)
+        searcher_zodiac_key = filters.pop('searcher_zodiac_key', None)
+        # "Barchasi" tanlanganda xuddi jinsdagilarni chiqarmaslik
+        exclude_gender = filters.pop('exclude_gender', None)
 
         query = """
-            SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64
+            SELECT telegram_id, username, full_name, gender, age, city, about,
+                   interests, zodiac, goals, photo_file_id, photo_base64
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
@@ -621,15 +591,17 @@ async def search_users(telegram_id, filters):
         params = [excluded, searcher_is_serious]
         idx = 3
 
-        # Xuddi jins qidiruvini bloklash: erkak erkakni, ayol ayolni qidira olmaydi
+        # Xuddi jins bloki: qidirayotgan foydalanuvchi jinsi bilan bir xil bo'lganlarni chiqarmaslik
         if searcher_gender:
             query += f" AND gender != ${idx}"
             params.append(searcher_gender)
             idx += 1
+        elif exclude_gender:
+            query += f" AND gender != ${idx}"
+            params.append(exclude_gender)
+            idx += 1
 
         if filters.get("gender"):
-            # Gender filtr faqat qidirayotganniki bilan zid bo'lsa ishlaydi
-            # (masalan erkak ayol qidirsa, gender='ayol' filtrlanadi — bu to'g'ri)
             query += f" AND gender = ${idx}"
             params.append(filters["gender"])
             idx += 1
@@ -645,13 +617,11 @@ async def search_users(telegram_id, filters):
             idx += 1
 
         if filters.get("city"):
-            # Tuman yoki viloyat bo'yicha ILIKE qidirish
             query += f" AND city ILIKE ${idx}"
             params.append(f"%{filters['city']}%")
             idx += 1
 
         if filters.get('central_asia'):
-            # Butun Markaziy Osiyo bo'yicha qidirish
             query += f" AND country = ANY(${idx}::text[])"
             params.append(CENTRAL_ASIA_COUNTRIES)
             idx += 1
@@ -698,16 +668,59 @@ async def search_users(telegram_id, filters):
             user['can_write'] = user['telegram_id'] in match_ids
             # Burj moslik foizini hisoblash
             if searcher_zodiac_key and user.get('zodiac'):
-                candidate_key = ZODIAC_NAME_TO_KEY.get(
-                    str(user['zodiac']).lower().replace('\u2018', "'").replace('\u2019', "'").replace('`', "'").replace('\u02bb', "'")
-                )
-                user['zodiac_match_percent'] = zodiac_compatibility_percent(searcher_zodiac_key, candidate_key)
+                cand_key = _normalize_zodiac_for_db(user['zodiac'])
+                user['zodiac_match_percent'] = _zodiac_compat_db(searcher_zodiac_key, cand_key)
             else:
                 user['zodiac_match_percent'] = None
             result.append(user)
         return result
     finally:
         await conn.close()
+
+
+def _normalize_zodiac_for_db(value):
+    """Burj nomini key ga aylantiradi (database.py ichida)."""
+    if not value:
+        return None
+    text = str(value).replace('\u2018', "'").replace('\u2019', "'").replace('`', "'").replace('\u02bb', "'")
+    for sym in ('♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓'):
+        text = text.replace(sym, '')
+    text = text.lower().strip()
+    _map = {
+        'qoy': 'qoy', "qo'y": 'qoy', 'aries': 'qoy',
+        'buzoq': 'buzoq', 'buqa': 'buzoq', 'taurus': 'buzoq',
+        'egizak': 'egizak', 'egizaklar': 'egizak', 'gemini': 'egizak',
+        'qisqichbaqa': 'qisqichbaqa', 'cancer': 'qisqichbaqa',
+        'arslon': 'arslon', 'sher': 'arslon', 'leo': 'arslon',
+        'sunbula': 'sunbula', 'qiz': 'sunbula', 'virgo': 'sunbula',
+        'tarozi': 'tarozi', 'libra': 'tarozi',
+        'chayon': 'chayon', 'chayonlar': 'chayon', 'scorpio': 'chayon',
+        'oqotar': 'oqotar', "o'qotar": 'oqotar', 'yoy': 'oqotar', 'sagittarius': 'oqotar',
+        "tog' echkisi": 'tog_echkisi', 'tog echkisi': 'tog_echkisi', 'capricorn': 'tog_echkisi',
+        "qovg'a": 'qovga', 'qovga': 'qovga', 'qovunchi': 'qovga', 'aquarius': 'qovga',
+        'baliq': 'baliq', 'pisces': 'baliq',
+    }
+    return _map.get(text)
+
+
+_ZODIAC_PCT = {
+    ('qoy','arslon'):98,('qoy','oqotar'):95,('qoy','egizak'):91,('qoy','tarozi'):78,('qoy','qovga'):82,('qoy','qoy'):72,
+    ('buzoq','sunbula'):98,('buzoq','qisqichbaqa'):95,('buzoq','tog_echkisi'):92,('buzoq','baliq'):85,('buzoq','buzoq'):70,
+    ('egizak','tarozi'):97,('egizak','qovga'):93,('egizak','arslon'):88,('egizak','egizak'):68,
+    ('qisqichbaqa','chayon'):98,('qisqichbaqa','baliq'):96,('qisqichbaqa','sunbula'):80,('qisqichbaqa','qisqichbaqa'):73,
+    ('arslon','oqotar'):96,('arslon','tarozi'):85,('arslon','arslon'):65,
+    ('sunbula','tog_echkisi'):97,('sunbula','chayon'):88,('sunbula','sunbula'):71,
+    ('tarozi','qovga'):95,('tarozi','tarozi'):69,
+    ('chayon','baliq'):97,('chayon','tog_echkisi'):84,('chayon','chayon'):74,
+    ('oqotar','qovga'):90,('oqotar','oqotar'):67,
+    ('tog_echkisi','baliq'):86,('tog_echkisi','tog_echkisi'):72,
+    ('qovga','qovga'):66,('baliq','baliq'):75,
+}
+
+def _zodiac_compat_db(k1, k2):
+    if not k1 or not k2:
+        return None
+    return _ZODIAC_PCT.get((k1,k2)) or _ZODIAC_PCT.get((k2,k1)) or 50
 
 
 # Markaziy Osiyo davlatlari
