@@ -1915,6 +1915,15 @@ async def search_api(request):
         if telegram_id is None:
             telegram_id = 0
 
+        # Qidirayotgan foydalanuvchining maqsadlarini olish (only_serious_men filtr uchun)
+        if telegram_id and 'searcher_goals' not in filters:
+            try:
+                searcher = await db.get_user(int(telegram_id))
+                if searcher:
+                    filters['searcher_goals'] = searcher.get('goals') or []
+            except Exception:
+                pass
+
         zodiac_compat_list = filters.pop('zodiac_compat_list', None)
         if zodiac_compat_list:
             mos_keys = []
