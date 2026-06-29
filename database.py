@@ -828,7 +828,7 @@ async def search_users_by_zodiac(telegram_id, filters):
             query += " AND (" + " OR ".join(like_conditions) + ")"
 
         if filters.get('gender'):
-            query += f" AND gender ILIKE ${idx}"
+            query += f" AND gender = ${idx}"
             params.append(filters['gender'])
             idx += 1
 
