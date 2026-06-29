@@ -1567,20 +1567,20 @@ async def search_gender_callback(callback: types.CallbackQuery):
     my_zodiac_key = normalize_zodiac_key(me.get('zodiac') or '') if me else None
 
     filters = {}
-    if gender_value != "all":
-        # Xuddi jins qidiruvini bloklash: erkak erkakni, ayol ayolni topa olmaydi
-        if my_gender and gender_value == my_gender:
-            opp = 'ayol' if my_gender == 'erkak' else 'erkak'
-            filters["gender"] = opp
-        else:
-            filters["gender"] = gender_value
-    else:
-        # "Barchasi" tanlanganda ham xuddi jinsdagilarni chiqarmaymiz
+
+    if gender_value == "all":
+        # Barchasi: faqat xuddi jinsdagilarni chiqarmaslik
         if my_gender:
             filters["exclude_gender"] = my_gender
+    else:
+        # Aniq jins tanlangan: shu jinsni qidir
+        # Agar o'zining jinsini tanlagan bo'lsa → qarama-qarshi jinsni qidir
+        if my_gender and gender_value == my_gender:
+            filters["gender"] = 'ayol' if my_gender == 'erkak' else 'erkak'
+        else:
+            filters["gender"] = gender_value
 
-    # searcher info ni filter ga qo'shamiz (database.py da ishlatiladi)
-    filters["searcher_gender"] = my_gender
+    # Burj moslik foizi uchun
     filters["searcher_zodiac_key"] = my_zodiac_key
 
     users = await db.search_users(callback.from_user.id, filters)
