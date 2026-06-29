@@ -1915,12 +1915,20 @@ async def search_api(request):
         if telegram_id is None:
             telegram_id = 0
 
-        # Qidirayotgan foydalanuvchining maqsadlarini olish (only_serious_men filtr uchun)
+        # Qidirayotgan foydalanuvchining maqsadlari va jinsini olish
         if telegram_id and 'searcher_goals' not in filters:
             try:
                 searcher = await db.get_user(int(telegram_id))
                 if searcher:
                     filters['searcher_goals'] = searcher.get('goals') or []
+                    # Xuddi jins blok uchun — searcher jinsi
+                    if 'searcher_gender' not in filters:
+                        filters['searcher_gender'] = searcher.get('gender')
+                    # Burj moslik foizi uchun — searcher burji key'i
+                    if 'searcher_zodiac_key' not in filters:
+                        zodiac_raw = searcher.get('zodiac')
+                        if zodiac_raw:
+                            filters['searcher_zodiac_key'] = get_zodiac_key(zodiac_raw)
             except Exception:
                 pass
 
