@@ -592,7 +592,12 @@ async def search_users(telegram_id, filters):
             params.append(f"%{filters['city']}%")
             idx += 1
 
-        if filters.get("country"):
+        if filters.get('central_asia'):
+            # Butun Markaziy Osiyo bo'yicha qidirish
+            query += f" AND country = ANY(${idx}::text[])"
+            params.append(CENTRAL_ASIA_COUNTRIES)
+            idx += 1
+        elif filters.get('country'):
             query += f" AND country ILIKE ${idx}"
             params.append(f"%{filters['country']}%")
             idx += 1
@@ -638,6 +643,15 @@ async def search_users(telegram_id, filters):
     finally:
         await conn.close()
 
+
+# Markaziy Osiyo davlatlari
+CENTRAL_ASIA_COUNTRIES = [
+    'O\'zbekiston', 'Ozbekiston', 'Uzbekistan', 'Ўзбекистон', 'Узбекистан',
+    'Qozog\'iston', 'Qozogiston', 'Kazakhstan', 'Казахстан', 'Қазақстан',
+    'Qirg\'iziston', 'Kyrgyzstan', 'Кыргызстан', 'Қырғызстан', 'Киргизстан',
+    'Tojikiston', 'Tajikistan', 'Таджикистан', 'Тоҷикистон',
+    'Turkmaniston', 'Turkmenistan', 'Туркменистан', 'Türkmenistan',
+]
 
 # Burj nomlari
 ZODIAC_KEY_TO_NAMES = {
@@ -730,9 +744,23 @@ async def search_users_by_zodiac(telegram_id, filters):
         if like_conditions:
             query += " AND (" + " OR ".join(like_conditions) + ")"
 
-        if filters.get("gender"):
+        if filters.get('gender'):
             query += f" AND gender = ${idx}"
-            params.append(filters["gender"])
+            params.append(filters['gender'])
+            idx += 1
+
+        if filters.get('central_asia'):
+            query += f" AND country = ANY(${idx}::text[])"
+            params.append(CENTRAL_ASIA_COUNTRIES)
+            idx += 1
+        elif filters.get('country'):
+            query += f" AND country ILIKE ${idx}"
+            params.append(f"%{filters['country']}%")
+            idx += 1
+
+        if filters.get('city'):
+            query += f" AND city ILIKE ${idx}"
+            params.append(f"%{filters['city']}%")
             idx += 1
 
         query += " LIMIT 50"
