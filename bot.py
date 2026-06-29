@@ -878,6 +878,7 @@ def escape_md(text):
     return text
 
 
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 search_sessions = {}
 pending_message_targets = {}
