@@ -612,15 +612,6 @@ T = {
 }
 
 
-def escape_md(text):
-    """Markdown V1 uchun maxsus belgilarni escape qilish."""
-    if not text:
-        return ''
-    for ch in ('*', '_', '`', '['):
-        text = text.replace(ch, '\\' + ch)
-    return text
-
-
 def t(lang, key, **kwargs):
     """Tarjima olish"""
     if lang not in T:
@@ -628,16 +619,14 @@ def t(lang, key, **kwargs):
     text = T[lang].get(key, T['uz'].get(key, key))
     if kwargs:
         try:
-            # name va full_name kabi maydondagi Markdown belgilarni escape qilish
-            safe_kwargs = {}
-            for k, v in kwargs.items():
-                if k in ('name', 'full_name') and isinstance(v, str):
-                    safe_kwargs[k] = escape_md(v)
-                else:
-                    safe_kwargs[k] = v
-            text = text.format(**safe_kwargs)
+            safe = {k: (escape_md(v) if k in ('name', 'full_name') and isinstance(v, str) else v)
+                    for k, v in kwargs.items()}
+            text = text.format(**safe)
         except Exception:
-            pass
+            try:
+                text = text.format(**kwargs)
+            except Exception:
+                pass
     return text
 
 
@@ -722,7 +711,173 @@ def get_zodiac_key(zodiac_value: str) -> str | None:
     return normalize_zodiac_key(zodiac_value)
 
 
-bot = Bot(token=BOT_TOKEN)
+# ========== QIZIQISHLAR TARJIMASI ==========
+INTERESTS_LABELS = {
+    'uz': {
+        'int_kino': '🍿 Kino', 'int_musiqa': '🎵 Musiqa', 'int_kitob': "📚 Kitob o'qish",
+        'int_oyinlar': "🎮 O'yinlar", 'int_teatr': '🎭 Teatr', 'int_muzey': '🏛️ Muzeylar',
+        'int_sanat': "🎨 San'at", 'int_foto': '📸 Foto', 'int_sheeriyat': "📜 She'riyat",
+        'int_raqs': '💃 Raqs', 'int_sport': '⚽ Sport', 'int_yoga': '🧘 Yoga',
+        'int_sayr': '🚶 Sayr', 'int_tennis': '🏓 Tennis', 'int_sayohat': '✈️ Sayohat',
+        'int_plyaj': '🏖️ Plyaj', 'int_shopping': '🛍️ Shopping', 'int_moda': '👗 Moda',
+        'int_qahva': '☕ Qahva', 'int_blog': '✍️ Blog', 'int_dasturlash': '💻 Dasturlash',
+        'int_shaxmat': '♟️ Shaxmat', 'int_rasm': '🎨 Rasm', 'int_tillar': "🗣️ Tillar",
+    },
+    'ru': {
+        'int_kino': '🍿 Кино', 'int_musiqa': '🎵 Музыка', 'int_kitob': '📚 Чтение',
+        'int_oyinlar': '🎮 Игры', 'int_teatr': '🎭 Театр', 'int_muzey': '🏛️ Музеи',
+        'int_sanat': '🎨 Искусство', 'int_foto': '📸 Фото', 'int_sheeriyat': '📜 Поэзия',
+        'int_raqs': '💃 Танцы', 'int_sport': '⚽ Спорт', 'int_yoga': '🧘 Йога',
+        'int_sayr': '🚶 Прогулки', 'int_tennis': '🏓 Теннис', 'int_sayohat': '✈️ Путешествия',
+        'int_plyaj': '🏖️ Пляж', 'int_shopping': '🛍️ Шоппинг', 'int_moda': '👗 Мода',
+        'int_qahva': '☕ Кофе', 'int_blog': '✍️ Блог', 'int_dasturlash': '💻 Программирование',
+        'int_shaxmat': '♟️ Шахматы', 'int_rasm': '🎨 Рисование', 'int_tillar': '🗣️ Языки',
+    },
+    'en': {
+        'int_kino': '🍿 Movies', 'int_musiqa': '🎵 Music', 'int_kitob': '📚 Reading',
+        'int_oyinlar': '🎮 Gaming', 'int_teatr': '🎭 Theatre', 'int_muzey': '🏛️ Museums',
+        'int_sanat': '🎨 Art', 'int_foto': '📸 Photo', 'int_sheeriyat': '📜 Poetry',
+        'int_raqs': '💃 Dancing', 'int_sport': '⚽ Sport', 'int_yoga': '🧘 Yoga',
+        'int_sayr': '🚶 Walking', 'int_tennis': '🏓 Tennis', 'int_sayohat': '✈️ Travel',
+        'int_plyaj': '🏖️ Beach', 'int_shopping': '🛍️ Shopping', 'int_moda': '👗 Fashion',
+        'int_qahva': '☕ Coffee', 'int_blog': '✍️ Blogging', 'int_dasturlash': '💻 Coding',
+        'int_shaxmat': '♟️ Chess', 'int_rasm': '🎨 Drawing', 'int_tillar': '🗣️ Languages',
+    },
+}
+# Qolgan tillar uchun uz dan foydalaniladi
+
+GOALS_LABELS = {
+    'uz': {
+        'goal_jiddiy': '💍 Jiddiy (Oila)', 'goal_dostlik_suhbat': "💬 Do'stlik",
+        'goal_hamroh': '🧳 Hamroh', 'goal_dostlik': "Do'stlik",
+        'goal_tanishuv': 'Tanishuv', 'goal_oila': 'Oila',
+        'goal_sevgi': 'Sevgi', 'goal_romantika': 'Romantika',
+        'goal_uchrashuv': 'Uchrashuv', 'goal_virtual': 'Virtual muloqot',
+        'goal_boshqa': 'Boshqa',
+    },
+    'ru': {
+        'goal_jiddiy': '💍 Серьёзно', 'goal_dostlik_suhbat': '💬 Дружба',
+        'goal_hamroh': '🧳 Компаньон', 'goal_dostlik': 'Дружба',
+        'goal_tanishuv': 'Знакомство', 'goal_oila': 'Семья',
+        'goal_sevgi': 'Любовь', 'goal_romantika': 'Романтика',
+        'goal_uchrashuv': 'Свидание', 'goal_virtual': 'Виртуальное общение',
+        'goal_boshqa': 'Другое',
+    },
+    'en': {
+        'goal_jiddiy': '💍 Serious', 'goal_dostlik_suhbat': '💬 Friendship',
+        'goal_hamroh': '🧳 Companion', 'goal_dostlik': 'Friendship',
+        'goal_tanishuv': 'Dating', 'goal_oila': 'Family',
+        'goal_sevgi': 'Love', 'goal_romantika': 'Romance',
+        'goal_uchrashuv': 'Meeting', 'goal_virtual': 'Virtual',
+        'goal_boshqa': 'Other',
+    },
+}
+
+# Burj nomlari tillarga ko'ra
+ZODIAC_DISPLAY = {
+    'uz': {
+        'qoy': "♈ Qo'y", 'buzoq': '♉ Buzoq', 'egizak': '♊ Egizak',
+        'qisqichbaqa': '♋ Qisqichbaqa', 'arslon': '♌ Arslon', 'sunbula': '♍ Sunbula',
+        'tarozi': '♎ Tarozi', 'chayon': '♏ Chayon', 'oqotar': "♐ O'qotar",
+        'tog_echkisi': "♑ Tog' echkisi", 'qovga': "♒ Qovg'a", 'baliq': '♓ Baliq',
+    },
+    'ru': {
+        'qoy': '♈ Овен', 'buzoq': '♉ Телец', 'egizak': '♊ Близнецы',
+        'qisqichbaqa': '♋ Рак', 'arslon': '♌ Лев', 'sunbula': '♍ Дева',
+        'tarozi': '♎ Весы', 'chayon': '♏ Скорпион', 'oqotar': '♐ Стрелец',
+        'tog_echkisi': '♑ Козерог', 'qovga': '♒ Водолей', 'baliq': '♓ Рыбы',
+    },
+    'kk': {
+        'qoy': '♈ Қой', 'buzoq': '♉ Бұқа', 'egizak': '♊ Егіздер',
+        'qisqichbaqa': '♋ Шаян', 'arslon': '♌ Арыстан', 'sunbula': '♍ Бикеш',
+        'tarozi': '♎ Таразы', 'chayon': '♏ Скорпион', 'oqotar': '♐ Мерген',
+        'tog_echkisi': '♑ Ешкімүйіз', 'qovga': '♒ Құнан', 'baliq': '♓ Балық',
+    },
+    'en': {
+        'qoy': '♈ Aries', 'buzoq': '♉ Taurus', 'egizak': '♊ Gemini',
+        'qisqichbaqa': '♋ Cancer', 'arslon': '♌ Leo', 'sunbula': '♍ Virgo',
+        'tarozi': '♎ Libra', 'chayon': '♏ Scorpio', 'oqotar': '♐ Sagittarius',
+        'tog_echkisi': '♑ Capricorn', 'qovga': '♒ Aquarius', 'baliq': '♓ Pisces',
+    },
+}
+
+# Burj moslik foizi — SI asosida
+ZODIAC_COMPAT_PERCENT = {
+    ('qoy', 'arslon'): 98, ('arslon', 'qoy'): 98,
+    ('qoy', 'egizak'): 91, ('egizak', 'qoy'): 91,
+    ('qoy', 'oqotar'): 95, ('oqotar', 'qoy'): 95,
+    ('qoy', 'tarozi'): 78, ('tarozi', 'qoy'): 78,
+    ('qoy', 'qovga'): 82, ('qovga', 'qoy'): 82,
+    ('qoy', 'qoy'): 72,
+    ('buzoq', 'sunbula'): 98, ('sunbula', 'buzoq'): 98,
+    ('buzoq', 'qisqichbaqa'): 95, ('qisqichbaqa', 'buzoq'): 95,
+    ('buzoq', 'tog_echkisi'): 92, ('tog_echkisi', 'buzoq'): 92,
+    ('buzoq', 'baliq'): 85, ('baliq', 'buzoq'): 85,
+    ('buzoq', 'buzoq'): 70,
+    ('egizak', 'tarozi'): 97, ('tarozi', 'egizak'): 97,
+    ('egizak', 'qovga'): 93, ('qovga', 'egizak'): 93,
+    ('egizak', 'arslon'): 88, ('arslon', 'egizak'): 88,
+    ('egizak', 'egizak'): 68,
+    ('qisqichbaqa', 'chayon'): 98, ('chayon', 'qisqichbaqa'): 98,
+    ('qisqichbaqa', 'baliq'): 96, ('baliq', 'qisqichbaqa'): 96,
+    ('qisqichbaqa', 'sunbula'): 80, ('sunbula', 'qisqichbaqa'): 80,
+    ('qisqichbaqa', 'qisqichbaqa'): 73,
+    ('arslon', 'oqotar'): 96, ('oqotar', 'arslon'): 96,
+    ('arslon', 'tarozi'): 85, ('tarozi', 'arslon'): 85,
+    ('arslon', 'arslon'): 65,
+    ('sunbula', 'tog_echkisi'): 97, ('tog_echkisi', 'sunbula'): 97,
+    ('sunbula', 'chayon'): 88, ('chayon', 'sunbula'): 88,
+    ('sunbula', 'sunbula'): 71,
+    ('tarozi', 'qovga'): 95, ('qovga', 'tarozi'): 95,
+    ('tarozi', 'tarozi'): 69,
+    ('chayon', 'baliq'): 97, ('baliq', 'chayon'): 97,
+    ('chayon', 'tog_echkisi'): 84, ('tog_echkisi', 'chayon'): 84,
+    ('chayon', 'chayon'): 74,
+    ('oqotar', 'qovga'): 90, ('qovga', 'oqotar'): 90,
+    ('oqotar', 'oqotar'): 67,
+    ('tog_echkisi', 'baliq'): 86, ('baliq', 'tog_echkisi'): 86,
+    ('tog_echkisi', 'tog_echkisi'): 72,
+    ('qovga', 'qovga'): 66,
+    ('baliq', 'baliq'): 75,
+}
+
+def zodiac_compat_percent(key1, key2):
+    """Ikki burj o'rtasidagi moslik foizini qaytaradi."""
+    if not key1 or not key2:
+        return None
+    pct = ZODIAC_COMPAT_PERCENT.get((key1, key2)) or ZODIAC_COMPAT_PERCENT.get((key2, key1))
+    return pct if pct else 50  # mos kelmasa 50%
+
+
+def get_zodiac_display(zodiac_raw, lang='uz'):
+    """Burj nomini joriy tilda ko'rsatadi."""
+    key = normalize_zodiac_key(zodiac_raw)
+    if not key:
+        return zodiac_raw or ''
+    display = ZODIAC_DISPLAY.get(lang, ZODIAC_DISPLAY['uz'])
+    return display.get(key, zodiac_raw or '')
+
+
+def translate_interest(key, lang='uz'):
+    """Interest key ni ko'rsatiladigan nomga aylantiradi."""
+    labels = INTERESTS_LABELS.get(lang) or INTERESTS_LABELS.get('uz', {})
+    return labels.get(key, key)
+
+
+def translate_goal(key, lang='uz'):
+    labels = GOALS_LABELS.get(lang) or GOALS_LABELS.get('uz', {})
+    return labels.get(key, key)
+
+
+def escape_md(text):
+    """Markdown V1 uchun maxsus belgilarni escape qilish."""
+    if not text:
+        return ''
+    for ch in ('*', '_', '`', '['):
+        text = str(text).replace(ch, '\\' + ch)
+    return text
+
+
 dp = Dispatcher(storage=MemoryStorage())
 search_sessions = {}
 pending_message_targets = {}
@@ -984,22 +1139,51 @@ def format_location_label(city='', lang='uz'):
     return city_text
 
 
-def format_user_card(user, lang='uz'):
+def format_user_card(user, lang='uz', searcher_zodiac_key=None):
     gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
-    zodiac_text = escape_md(user.get("zodiac") or t(lang, 'not_specified'))
-    about_text = escape_md((user.get('about') or '').strip())
-    interests = (user.get('interests') or [])[:5]
-    interests_text = escape_md(', '.join(interests) if interests else t(lang, 'not_specified'))
-    full_name = escape_md(user.get('full_name') or 'Anonim')
+
+    # Burj — tilga mos ko'rsatish
+    zodiac_raw = user.get("zodiac") or ''
+    zodiac_display = get_zodiac_display(zodiac_raw, lang) if zodiac_raw else t(lang, 'not_specified')
+
+    # Burj moslik foizi
+    compat_line = ''
+    if searcher_zodiac_key and zodiac_raw:
+        candidate_key = normalize_zodiac_key(zodiac_raw)
+        pct = zodiac_compat_percent(searcher_zodiac_key, candidate_key)
+        if pct is not None:
+            compat_label = {'uz': 'mos', 'ru': 'совместимость', 'en': 'match',
+                            'kk': 'сәйкес', 'ky': 'шайкеш', 'tg': 'мувофиқ'}.get(lang, 'mos')
+            compat_line = f"\n⭐ {pct}% {compat_label}"
+
+    # Qiziqishlar — key → chiroyli nom
+    interests_raw = (user.get('interests') or [])[:5]
+    if interests_raw:
+        interests_text = ', '.join(translate_interest(i, lang) for i in interests_raw)
+    else:
+        interests_text = t(lang, 'not_specified')
+
+    # Maqsad
+    goals_raw = (user.get('goals') or [])[:3]
+    goals_text = ', '.join(translate_goal(g, lang) for g in goals_raw) if goals_raw else ''
+
+    # Joy
     city_text = escape_md(format_location_label(user.get('city'), lang))
+
+    # Ism va about escape
+    full_name = escape_md(user.get('full_name') or 'Anonim')
+    about_text = escape_md((user.get('about') or '').strip())
 
     lines = [
         f"{gender_icon} *{full_name}*",
         f"🎂 {t(lang, 'age')}: {user.get('age', '—')}",
         f"📍 {t(lang, 'city')}: {city_text}",
-        f"⭐ {t(lang, 'zodiac')}: {zodiac_text}",
-        f"🎯 {t(lang, 'interests')}: {interests_text}",
+        f"⭐ {t(lang, 'zodiac')}: {escape_md(zodiac_display)}{compat_line}",
     ]
+    if goals_text:
+        lines.append(f"🎯 {t(lang, 'goal')}: {escape_md(goals_text)}")
+    if interests_text:
+        lines.append(f"✨ {t(lang, 'interests')}: {escape_md(interests_text)}")
     if about_text:
         lines.append('')
         lines.append(f"📝 {t(lang, 'about')}:")
@@ -1043,7 +1227,9 @@ async def show_search_candidate(chat, user_id, index, lang='uz'):
         return
 
     user = users[index]
-    text = format_user_card(user, lang)
+    # Qidirayotgan foydalanuvchining burj key-ini olamiz
+    searcher_zodiac_key = session.get('searcher_zodiac_key')
+    text = format_user_card(user, lang, searcher_zodiac_key=searcher_zodiac_key)
     text += t(lang, 'search_counter', current=index + 1, total=len(users))
 
     builder = InlineKeyboardBuilder()
@@ -1373,16 +1559,38 @@ async def search_gender_callback(callback: types.CallbackQuery):
     lang = await get_user_lang(callback.from_user.id)
     await callback.answer(t(lang, 'searching'))
     gender_value = callback.data.split(":", 1)[1]
+
+    # Qidirayotgan foydalanuvchining ma'lumotlarini olamiz
+    me = await db.get_user(callback.from_user.id)
+    my_gender = me.get('gender') if me else None
+    my_zodiac_key = normalize_zodiac_key(me.get('zodiac') or '') if me else None
+
     filters = {}
     if gender_value != "all":
-        filters["gender"] = gender_value
+        # Xuddi jins qidiruvini bloklash: erkak erkakni, ayol ayolni topa olmaydi
+        if my_gender and gender_value == my_gender:
+            opp = 'ayol' if my_gender == 'erkak' else 'erkak'
+            filters["gender"] = opp
+        else:
+            filters["gender"] = gender_value
+    else:
+        # "Barchasi" tanlanganda ham xuddi jinsdagilarni chiqarmaymiz
+        if my_gender:
+            filters["exclude_gender"] = my_gender
+
+    # searcher info ni filter ga qo'shamiz (database.py da ishlatiladi)
+    filters["searcher_gender"] = my_gender
+    filters["searcher_zodiac_key"] = my_zodiac_key
 
     users = await db.search_users(callback.from_user.id, filters)
     if not users:
         await callback.message.answer(t(lang, 'no_results'))
         return
 
-    search_sessions[callback.from_user.id] = {'users': users, 'index': 0, 'lang': lang}
+    search_sessions[callback.from_user.id] = {
+        'users': users, 'index': 0, 'lang': lang,
+        'searcher_zodiac_key': my_zodiac_key,
+    }
     await show_search_candidate(callback.message, callback.from_user.id, 0, lang)
 
 
