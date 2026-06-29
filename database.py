@@ -560,6 +560,39 @@ async def get_user(telegram_id):
         await conn.close()
 
 
+ZODIAC_COMPAT = {
+    "qoy":         ["arslon", "oqotar", "egizak", "qovga"],
+    "buzoq":       ["sunbula", "qisqichbaqa", "tarozi", "baliq"],
+    "egizak":      ["tarozi", "qovga", "qoy", "arslon"],
+    "qisqichbaqa": ["chayon", "baliq", "buzoq", "sunbula"],
+    "arslon":      ["qoy", "oqotar", "egizak", "tarozi"],
+    "sunbula":     ["buzoq", "qisqichbaqa", "tarozi", "chayon"],
+    "tarozi":      ["egizak", "qovga", "arslon", "oqotar"],
+    "chayon":      ["qisqichbaqa", "baliq", "sunbula", "tog_echkisi"],
+    "oqotar":      ["qoy", "arslon", "tarozi", "qovga"],
+    "tog_echkisi": ["buzoq", "sunbula", "chayon", "baliq"],
+    "qovga":       ["egizak", "tarozi", "oqotar", "qoy"],
+    "baliq":       ["qisqichbaqa", "chayon", "buzoq", "tog_echkisi"],
+}
+
+def zodiac_compatibility_percent(z1_key, z2_key):
+    """Ikki burj o'rtasidagi moslik foizini qaytaradi (45-98%)."""
+    if not z1_key or not z2_key:
+        return None
+    if z1_key == z2_key:
+        return 72
+    compat = ZODIAC_COMPAT.get(z1_key, [])
+    if z2_key == compat[0] if compat else False:
+        return 98
+    elif z2_key in (compat[1:2] if len(compat) > 1 else []):
+        return 91
+    elif z2_key in (compat[2:3] if len(compat) > 2 else []):
+        return 84
+    elif z2_key in (compat[3:] if len(compat) > 3 else []):
+        return 78
+    else:
+        return 52
+
 async def search_users(telegram_id, filters):
     conn = await get_db()
     try:
@@ -569,9 +602,11 @@ async def search_users(telegram_id, filters):
         )
         excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
 
-        # Qidirayotgan foydalanuvchining o'z maqsadlari (only_serious_men filtr uchun)
+        # Qidirayotgan foydalanuvchining ma'lumotlari
         searcher_goals = filters.pop('searcher_goals', []) or []
         searcher_is_serious = 'goal_jiddiy' in searcher_goals
+        searcher_zodiac_key = filters.pop('searcher_zodiac_key', None)
+        searcher_gender = filters.pop('searcher_gender', None)
 
         query = """
             SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64
@@ -586,7 +621,15 @@ async def search_users(telegram_id, filters):
         params = [excluded, searcher_is_serious]
         idx = 3
 
+        # Xuddi jins qidiruvini bloklash: erkak erkakni, ayol ayolni qidira olmaydi
+        if searcher_gender:
+            query += f" AND gender != ${idx}"
+            params.append(searcher_gender)
+            idx += 1
+
         if filters.get("gender"):
+            # Gender filtr faqat qidirayotganniki bilan zid bo'lsa ishlaydi
+            # (masalan erkak ayol qidirsa, gender='ayol' filtrlanadi — bu to'g'ri)
             query += f" AND gender = ${idx}"
             params.append(filters["gender"])
             idx += 1
@@ -653,6 +696,14 @@ async def search_users(telegram_id, filters):
         for row in rows:
             user = dict(row)
             user['can_write'] = user['telegram_id'] in match_ids
+            # Burj moslik foizini hisoblash
+            if searcher_zodiac_key and user.get('zodiac'):
+                candidate_key = ZODIAC_NAME_TO_KEY.get(
+                    str(user['zodiac']).lower().replace('\u2018', "'").replace('\u2019', "'").replace('`', "'").replace('\u02bb', "'")
+                )
+                user['zodiac_match_percent'] = zodiac_compatibility_percent(searcher_zodiac_key, candidate_key)
+            else:
+                user['zodiac_match_percent'] = None
             result.append(user)
         return result
     finally:
