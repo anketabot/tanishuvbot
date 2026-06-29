@@ -1567,26 +1567,33 @@ async def search_gender_callback(callback: types.CallbackQuery):
     my_zodiac_key = normalize_zodiac_key(me.get('zodiac') or '') if me else None
 
     filters = {}
+    opposite_gender = 'ayol' if my_gender == 'erkak' else 'erkak'
 
     if gender_value == "all":
         # Barchasi: faqat o'zining jinsidagilarni chiqarmaslik
         if my_gender:
             filters["exclude_gender"] = my_gender
+        # Barchasi da burj foizini ko'rsatamiz (qarama-qarshi jins uchun)
+        filters["searcher_zodiac_key"] = my_zodiac_key
+        filters["searcher_gender"] = my_gender
     else:
-        # Foydalanuvchi qaysi jinsni tanlagan bo'lsa, o'sha jinsni qidiradi
+        # Aniq jins tanlangan: foydalanuvchi tanlagan jinsni qidiradi
         filters["gender"] = gender_value
-
-    # Burj moslik foizi uchun
-    filters["searcher_zodiac_key"] = my_zodiac_key
+        # Burj moslik foizini FAQAT qarama-qarshi jins qidirilganda ko'rsatamiz
+        if my_gender and gender_value == opposite_gender:
+            filters["searcher_zodiac_key"] = my_zodiac_key
+        # Agar o'z jinsini qidirsa — searcher_zodiac_key yuborilmaydi → foiz ko'rsatilmaydi
 
     users = await db.search_users(callback.from_user.id, filters)
     if not users:
         await callback.message.answer(t(lang, 'no_results'))
         return
 
+    # Burj foizini faqat qarama-qarshi jins qidirilganda session ga saqlaymiz
+    show_zodiac = (gender_value == 'all') or (my_gender and gender_value == opposite_gender)
     search_sessions[callback.from_user.id] = {
         'users': users, 'index': 0, 'lang': lang,
-        'searcher_zodiac_key': my_zodiac_key,
+        'searcher_zodiac_key': my_zodiac_key if show_zodiac else None,
     }
     await show_search_candidate(callback.message, callback.from_user.id, 0, lang)
 
