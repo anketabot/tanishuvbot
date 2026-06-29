@@ -594,11 +594,11 @@ async def search_users(telegram_id, filters):
         # Jins filtri: aniq gender= berilgan bo'lsa uni ishlatamiz
         # exclude_gender= berilgan bo'lsa (barchasi holati) xuddi jinsdagilarni chiqaramiz
         if filters.get("gender"):
-            query += f" AND gender = ${idx}"
+            query += f" AND gender ILIKE ${idx}"
             params.append(filters["gender"])
             idx += 1
         elif exclude_gender:
-            query += f" AND gender != ${idx}"
+            query += f" AND gender NOT ILIKE ${idx}"
             params.append(exclude_gender)
             idx += 1
 
@@ -828,7 +828,7 @@ async def search_users_by_zodiac(telegram_id, filters):
             query += " AND (" + " OR ".join(like_conditions) + ")"
 
         if filters.get('gender'):
-            query += f" AND gender = ${idx}"
+            query += f" AND gender ILIKE ${idx}"
             params.append(filters['gender'])
             idx += 1
 
