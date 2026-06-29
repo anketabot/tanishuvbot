@@ -612,6 +612,15 @@ T = {
 }
 
 
+def escape_md(text):
+    """Markdown V1 uchun maxsus belgilarni escape qilish."""
+    if not text:
+        return ''
+    for ch in ('*', '_', '`', '['):
+        text = text.replace(ch, '\\' + ch)
+    return text
+
+
 def t(lang, key, **kwargs):
     """Tarjima olish"""
     if lang not in T:
@@ -619,7 +628,14 @@ def t(lang, key, **kwargs):
     text = T[lang].get(key, T['uz'].get(key, key))
     if kwargs:
         try:
-            text = text.format(**kwargs)
+            # name va full_name kabi maydondagi Markdown belgilarni escape qilish
+            safe_kwargs = {}
+            for k, v in kwargs.items():
+                if k in ('name', 'full_name') and isinstance(v, str):
+                    safe_kwargs[k] = escape_md(v)
+                else:
+                    safe_kwargs[k] = v
+            text = text.format(**safe_kwargs)
         except Exception:
             pass
     return text
@@ -970,15 +986,17 @@ def format_location_label(city='', lang='uz'):
 
 def format_user_card(user, lang='uz'):
     gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
-    zodiac_text = user.get("zodiac") or t(lang, 'not_specified')
-    about_text = (user.get('about') or '').strip()
+    zodiac_text = escape_md(user.get("zodiac") or t(lang, 'not_specified'))
+    about_text = escape_md((user.get('about') or '').strip())
     interests = (user.get('interests') or [])[:5]
-    interests_text = ', '.join(interests) if interests else t(lang, 'not_specified')
+    interests_text = escape_md(', '.join(interests) if interests else t(lang, 'not_specified'))
+    full_name = escape_md(user.get('full_name') or 'Anonim')
+    city_text = escape_md(format_location_label(user.get('city'), lang))
 
     lines = [
-        f"{gender_icon} *{user['full_name']}*",
-        f"🎂 {t(lang, 'age')}: {user['age']}",
-        f"📍 {t(lang, 'city')}: {format_location_label(user.get('city'), lang)}",
+        f"{gender_icon} *{full_name}*",
+        f"🎂 {t(lang, 'age')}: {user.get('age', '—')}",
+        f"📍 {t(lang, 'city')}: {city_text}",
         f"⭐ {t(lang, 'zodiac')}: {zodiac_text}",
         f"🎯 {t(lang, 'interests')}: {interests_text}",
     ]
@@ -1915,20 +1933,12 @@ async def search_api(request):
         if telegram_id is None:
             telegram_id = 0
 
-        # Qidirayotgan foydalanuvchining maqsadlari va jinsini olish
+        # Qidirayotgan foydalanuvchining maqsadlarini olish (only_serious_men filtr uchun)
         if telegram_id and 'searcher_goals' not in filters:
             try:
                 searcher = await db.get_user(int(telegram_id))
                 if searcher:
                     filters['searcher_goals'] = searcher.get('goals') or []
-                    # Xuddi jins blok uchun — searcher jinsi
-                    if 'searcher_gender' not in filters:
-                        filters['searcher_gender'] = searcher.get('gender')
-                    # Burj moslik foizi uchun — searcher burji key'i
-                    if 'searcher_zodiac_key' not in filters:
-                        zodiac_raw = searcher.get('zodiac')
-                        if zodiac_raw:
-                            filters['searcher_zodiac_key'] = get_zodiac_key(zodiac_raw)
             except Exception:
                 pass
 
