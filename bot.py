@@ -1569,11 +1569,11 @@ async def search_gender_callback(callback: types.CallbackQuery):
     filters = {}
 
     if gender_value == "all":
-        # Barchasi: faqat xuddi jinsdagilarni chiqarmaslik
+        # Barchasi: faqat o'zining jinsidagilarni chiqarmaslik
         if my_gender:
             filters["exclude_gender"] = my_gender
     else:
-        # Aniq jins tanlangan: to'g'ridan-to'g'ri filtr qo'llanadi
+        # Foydalanuvchi qaysi jinsni tanlagan bo'lsa, o'sha jinsni qidiradi
         filters["gender"] = gender_value
 
     # Burj moslik foizi uchun
