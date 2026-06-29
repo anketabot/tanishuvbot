@@ -75,6 +75,11 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP
         """)
 
+        # Faqat jiddiy niyatli erkaklar korina oladi (ayollar uchun sozlama)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS only_serious_men BOOLEAN DEFAULT FALSE
+        """)
+
         # Likes
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS likes (
@@ -501,8 +506,8 @@ async def save_user(telegram_id, data):
     conn = await get_db()
     try:
         await conn.execute("""
-            INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, region, country)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, region, country, only_serious_men)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ON CONFLICT (telegram_id) DO UPDATE SET
                 username = EXCLUDED.username,
                 full_name = EXCLUDED.full_name,
@@ -517,6 +522,7 @@ async def save_user(telegram_id, data):
                 photo_base64 = EXCLUDED.photo_base64,
                 region = EXCLUDED.region,
                 country = EXCLUDED.country,
+                only_serious_men = EXCLUDED.only_serious_men,
                 is_active = TRUE
         """,
             telegram_id,
@@ -532,7 +538,8 @@ async def save_user(telegram_id, data):
             data.get("photo_file_id"),
             data.get("photo_base64"),
             data.get("region"),
-            data.get("country", "Oʻzbekiston")
+            data.get("country", "Oʻzbekiston"),
+            bool(data.get("only_serious_men", False))
         )
         return True
     except Exception as e:
@@ -562,14 +569,22 @@ async def search_users(telegram_id, filters):
         )
         excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
 
+        # Qidirayotgan foydalanuvchining o'z maqsadlari (only_serious_men filtr uchun)
+        searcher_goals = filters.pop('searcher_goals', []) or []
+        searcher_is_serious = 'goal_jiddiy' in searcher_goals
+
         query = """
             SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
+            AND (
+                only_serious_men = FALSE OR only_serious_men IS NULL
+                OR (only_serious_men = TRUE AND $2 = TRUE)
+            )
         """
-        params = [excluded]
-        idx = 2
+        params = [excluded, searcher_is_serious]
+        idx = 3
 
         if filters.get("gender"):
             query += f" AND gender = ${idx}"
@@ -725,15 +740,23 @@ async def search_users_by_zodiac(telegram_id, filters):
         if not zodiac_names:
             return []
 
+        # Qidirayotgan foydalanuvchining o'z maqsadlari
+        searcher_goals = filters.pop('searcher_goals', []) or []
+        searcher_is_serious = 'goal_jiddiy' in searcher_goals
+
         query = """
             SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
             AND zodiac IS NOT NULL
+            AND (
+                only_serious_men = FALSE OR only_serious_men IS NULL
+                OR (only_serious_men = TRUE AND $2 = TRUE)
+            )
         """
-        params = [excluded]
-        idx = 2
+        params = [excluded, searcher_is_serious]
+        idx = 3
 
         like_conditions = []
         for name in zodiac_names:
