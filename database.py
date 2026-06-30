@@ -879,6 +879,7 @@ async def count_search_users(telegram_id, filters):
         excluded = [r["blocked"] for r in blocked_ids] + [telegram_id]
 
         zodiac_compat_list = filters.pop('zodiac_compat_list', None)
+        searcher_zodiac = filters.pop('searcher_zodiac', None)
         zodiac_keys = []
         zodiac_names_all = []
 
@@ -888,6 +889,12 @@ async def count_search_users(telegram_id, filters):
                 if key:
                     zodiac_keys.append(key)
                     zodiac_names_all.append(name)
+
+            # Qidiruvchining o'z burjini ham qo'shamiz (mos burjlar + o'z burji)
+            own_key = _normalize_zodiac_for_db(searcher_zodiac) if searcher_zodiac else None
+            if own_key and own_key not in zodiac_keys:
+                zodiac_keys.append(own_key)
+                zodiac_names_all.append(own_key)
 
         searcher_goals = filters.pop('searcher_goals', []) or []
         searcher_is_serious = 'goal_jiddiy' in searcher_goals
