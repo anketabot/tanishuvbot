@@ -116,6 +116,7 @@ T = {
         'btn_reject_like': "❌ Rad etish",
         'super_like_match_notify': "🎉⭐ *{name}* {sticker}Super Like yubordi va match bo'ldi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Super Like qabul qilindi! *{name}* sizni ham yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
+        'super_like_sticker': "⭐ Super Like uchun stiker tanlang:",
     },
     'ru': {
         'welcome': "👋 Здравствуйте, {name}!\n\n💙 *Добро пожаловать в бот знакомств!*\n\nЗдесь вы можете найти новых друзей и общаться.",
@@ -630,7 +631,45 @@ def t(lang, key, **kwargs):
     return text
 
 
-# ========== BURJ SOZLAMALARI ==========
+# ========== SUPER LIKE STIKERLARI ==========
+# Web App'dagi STICKERS ro'yxati bilan bir xil (app.js)
+STICKERS = ['😇', '😅', '😳', '😎', '🤔', '👋', '🥰', '❤️', '😍', '🤫',
+            '😜', '🫣', '👍', '👏', '😡', '🫦', '🔥', '💔', '🌹', '😉']
+
+
+def build_candidate_keyboard(lang, telegram_id):
+    """Qidiruv natijasidagi anketa ostidagi standart tugmalar (Like/Super Like/Skip/Write/Back)."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text=t(lang, 'btn_like'), callback_data=f"search_like:{telegram_id}"),
+        InlineKeyboardButton(text=t(lang, 'btn_super_like'), callback_data=f"search_super_like_pick:{telegram_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text=t(lang, 'btn_skip'), callback_data="search_skip"),
+        InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"search_message:{telegram_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text=t(lang, 'btn_back'), callback_data="show_main_menu")
+    )
+    return builder.as_markup()
+
+
+def build_sticker_picker_keyboard(lang, telegram_id):
+    """Super Like uchun stikerlar klaviaturasi (5 ustunli grid + bekor qilish tugmasi)."""
+    builder = InlineKeyboardBuilder()
+    row = []
+    for idx, sticker in enumerate(STICKERS):
+        row.append(InlineKeyboardButton(text=sticker, callback_data=f"search_super_like_send:{telegram_id}:{idx}"))
+        if len(row) == 5:
+            builder.row(*row)
+            row = []
+    if row:
+        builder.row(*row)
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_skip'), callback_data=f"search_super_like_cancel:{telegram_id}"))
+    return builder.as_markup()
+
+
+
 ZODIAC_SIGNS = {
     "qoy": ("Qo'y", "♈"),
     "buzoq": ("Buzoq", "♉"),
@@ -1258,18 +1297,7 @@ async def show_search_candidate(chat, user_id, index, lang='uz'):
     text = format_user_card(user, lang, searcher_zodiac_key=searcher_zodiac_key)
     text += t(lang, 'search_counter', current=index + 1, total=len(users))
 
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text=t(lang, 'btn_like'), callback_data=f"search_like:{user['telegram_id']}"),
-        InlineKeyboardButton(text=t(lang, 'btn_super_like'), callback_data=f"search_super_like:{user['telegram_id']}")
-    )
-    builder.row(
-        InlineKeyboardButton(text=t(lang, 'btn_skip'), callback_data="search_skip"),
-        InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"search_message:{user['telegram_id']}")
-    )
-    builder.row(
-        InlineKeyboardButton(text=t(lang, 'btn_back'), callback_data="show_main_menu")
-    )
+    reply_markup = build_candidate_keyboard(lang, user['telegram_id'])
 
     photo = get_photo_input(user)
     if photo:
@@ -1278,13 +1306,13 @@ async def show_search_candidate(chat, user_id, index, lang='uz'):
                 photo=photo,
                 caption=text,
                 parse_mode='Markdown',
-                reply_markup=builder.as_markup()
+                reply_markup=reply_markup
             )
         except Exception as e:
             logger.error(f"Photo send error: {e}")
-            await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
+            await chat.answer(text, parse_mode='Markdown', reply_markup=reply_markup)
     else:
-        await chat.answer(text, parse_mode='Markdown', reply_markup=builder.as_markup())
+        await chat.answer(text, parse_mode='Markdown', reply_markup=reply_markup)
 
 
 @dp.my_chat_member()
@@ -1661,37 +1689,87 @@ async def search_like_callback(callback: types.CallbackQuery):
     await _advance_search(callback, lang)
 
 
-@dp.callback_query(F.data.startswith('search_super_like:'))
-async def search_super_like_callback(callback: types.CallbackQuery):
+@dp.callback_query(F.data.startswith('search_super_like_pick:'))
+async def search_super_like_pick_callback(callback: types.CallbackQuery):
+    """Super Like bosilganda — avval stiker tanlash klaviaturasini ko'rsatamiz."""
     lang = await get_user_lang(callback.from_user.id)
     to_user = int(callback.data.split(':', 1)[1])
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=build_sticker_picker_keyboard(lang, to_user))
+    except Exception:
+        # edit muvaffaqiyatsiz bo'lsa (masalan rasm captioni o'zgarmadi), yangi xabar bilan ko'rsatamiz
+        await callback.message.answer(t(lang, 'super_like_sticker'), reply_markup=build_sticker_picker_keyboard(lang, to_user))
+
+
+@dp.callback_query(F.data.startswith('search_super_like_cancel:'))
+async def search_super_like_cancel_callback(callback: types.CallbackQuery):
+    """Stiker tanlashni bekor qilish — odatdagi tugmalarga qaytaramiz."""
+    lang = await get_user_lang(callback.from_user.id)
+    to_user = int(callback.data.split(':', 1)[1])
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=build_candidate_keyboard(lang, to_user))
+    except Exception:
+        pass
+
+
+@dp.callback_query(F.data.startswith('search_super_like_send:'))
+async def search_super_like_send_callback(callback: types.CallbackQuery):
+    """Foydalanuvchi stikerni tanlagandan so'ng — Super Like jo'natiladi va tanlangan stiker bilan xabar beriladi."""
+    lang = await get_user_lang(callback.from_user.id)
+    parts = callback.data.split(':')
+    to_user = int(parts[1])
+    try:
+        sticker_idx = int(parts[2])
+        sticker = STICKERS[sticker_idx]
+    except (IndexError, ValueError):
+        sticker = '⭐'
+
     can_super = await db.check_and_increment_limit(callback.from_user.id, 'super_likes')
     if not can_super:
         await callback.answer(t(lang, 'limit_exceeded_super'), show_alert=True)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=build_candidate_keyboard(lang, to_user))
+        except Exception:
+            pass
         return
 
     is_match = await db.add_like(callback.from_user.id, to_user, is_super=True)
     await db.increment_super_like_usage(callback.from_user.id)
     to_user_data = await db.get_user(to_user)
     my_data = await db.get_user(callback.from_user.id)
+    sticker_part = f"{sticker} "
 
     if is_match and to_user_data and my_data:
         try:
             to_lang = await get_user_lang(to_user)
-            await bot.send_message(to_user, t(to_lang, 'super_like_match', name=my_data['full_name']))
-            await callback.message.answer(t(lang, 'super_like_match', name=to_user_data['full_name']))
+            await bot.send_message(
+                to_user,
+                t(to_lang, 'super_like_match_notify', sticker=sticker_part, name=my_data['full_name']),
+                parse_mode="Markdown"
+            )
+            await callback.message.answer(
+                t(lang, 'super_like_match_self', sticker=sticker_part, name=to_user_data['full_name']),
+                parse_mode="Markdown"
+            )
         except Exception:
             pass
     else:
         try:
             if to_user_data and my_data:
                 to_lang = await get_user_lang(to_user)
-                await bot.send_message(to_user, t(to_lang, 'super_like_notify', name=my_data['full_name']))
+                await bot.send_message(
+                    to_user,
+                    t(to_lang, 'super_like_notify_btn', sticker=sticker_part, name=my_data['full_name']),
+                    parse_mode="Markdown"
+                )
         except Exception:
             pass
 
-    await callback.answer(t(lang, 'super_like_sent'), show_alert=False)
+    await callback.answer(f"{sticker} " + t(lang, 'super_like_sent'), show_alert=False)
     await _advance_search(callback, lang)
+
 
 
 @dp.callback_query(F.data.startswith('search_message:'))
