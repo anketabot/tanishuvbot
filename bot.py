@@ -1560,12 +1560,11 @@ async def search_zodiac_compat_gender_callback(callback: types.CallbackQuery):
         return
 
     compat = ZODIAC_COMPATIBILITY.get(my_key, {})
-    mos_keys = compat.get("mos", [])
+    mos_keys_only = compat.get("mos", [])
 
-    mos_zodiac_names = []
-    for name, key in ZODIAC_NAME_TO_KEY.items():
-        if key in mos_keys:
-            mos_zodiac_names.append(name)
+    # O'z burjini ham qo'shib, to'liq ro'yxatni tuzamiz
+    # (mendagi burj + menga mos burjlar)
+    mos_keys, mos_zodiac_names = build_zodiac_compat_filters(mos_keys_only, searcher_zodiac=user.get("zodiac"))
 
     filters = {"zodiac_keys": mos_keys, "zodiac_names": mos_zodiac_names}
     if gender_value != "all":
