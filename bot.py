@@ -711,6 +711,31 @@ def get_zodiac_key(zodiac_value: str) -> str | None:
     return normalize_zodiac_key(zodiac_value)
 
 
+def build_zodiac_compat_filters(zodiac_compat_list, searcher_zodiac=None):
+    """zodiac_compat_list (mos burjlar) + qidiruvchining o'z burjini birlashtirib,
+    qidiruv uchun kerakli zodiac_keys va zodiac_names ro'yxatlarini tuzadi."""
+    mos_keys = []
+    mos_names = []
+    for name in zodiac_compat_list:
+        key = get_zodiac_key(name)
+        if key:
+            mos_keys.append(key)
+            mos_names.append(name)
+
+    # Qidiruvchining o'z burjini ham qo'shamiz (masalan Qo'y -> mos: Arslon, Egizak, O'qotar + Qo'y)
+    own_key = get_zodiac_key(searcher_zodiac) if searcher_zodiac else None
+    if own_key and own_key not in mos_keys:
+        mos_keys.append(own_key)
+        mos_names.append(own_key)
+
+    for key in mos_keys:
+        for name, name_key in ZODIAC_NAME_TO_KEY.items():
+            if name_key == key and name not in mos_names:
+                mos_names.append(name)
+
+    return mos_keys, mos_names
+
+
 # ========== QIZIQISHLAR TARJIMASI ==========
 INTERESTS_LABELS = {
     'uz': {
@@ -1898,18 +1923,9 @@ async def web_app_data_handler(message: types.Message):
 
             zodiac_compat_list = filters.pop('zodiac_compat_list', None)
             if zodiac_compat_list:
-                mos_keys = []
-                mos_names = []
-                for name in zodiac_compat_list:
-                    key = get_zodiac_key(name)
-                    if key:
-                        mos_keys.append(key)
-                        mos_names.append(name)
-
-                for key in mos_keys:
-                    for name, name_key in ZODIAC_NAME_TO_KEY.items():
-                        if name_key == key and name not in mos_names:
-                            mos_names.append(name)
+                searcher = await db.get_user(message.from_user.id)
+                searcher_zodiac = searcher.get('zodiac') if searcher else None
+                mos_keys, mos_names = build_zodiac_compat_filters(zodiac_compat_list, searcher_zodiac)
 
                 zodiac_filters = dict(filters)
                 zodiac_filters['zodiac_keys'] = mos_keys
@@ -2138,7 +2154,8 @@ async def search_api(request):
         if telegram_id is None:
             telegram_id = 0
 
-        # Qidirayotgan foydalanuvchining maqsadlarini olish (only_serious_men filtr uchun)
+        # Qidirayotgan foydalanuvchining ma'lumotlarini olish (maqsadlar va burj uchun)
+        searcher = None
         if telegram_id and 'searcher_goals' not in filters:
             try:
                 searcher = await db.get_user(int(telegram_id))
@@ -2149,18 +2166,8 @@ async def search_api(request):
 
         zodiac_compat_list = filters.pop('zodiac_compat_list', None)
         if zodiac_compat_list:
-            mos_keys = []
-            mos_names = []
-            for name in zodiac_compat_list:
-                key = get_zodiac_key(name)
-                if key:
-                    mos_keys.append(key)
-                    mos_names.append(name)
-
-            for key in mos_keys:
-                for name, name_key in ZODIAC_NAME_TO_KEY.items():
-                    if name_key == key and name not in mos_names:
-                        mos_names.append(name)
+            searcher_zodiac = searcher.get('zodiac') if searcher else None
+            mos_keys, mos_names = build_zodiac_compat_filters(zodiac_compat_list, searcher_zodiac)
 
             zodiac_filters = dict(filters)
             zodiac_filters['zodiac_keys'] = mos_keys
@@ -2190,6 +2197,7 @@ async def search_count_api(request):
                 searcher = await db.get_user(int(telegram_id))
                 if searcher:
                     filters['searcher_goals'] = searcher.get('goals') or []
+                    filters['searcher_zodiac'] = searcher.get('zodiac')
             except Exception:
                 pass
 
