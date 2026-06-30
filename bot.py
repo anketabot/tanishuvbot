@@ -16,7 +16,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 import database as db
-from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD, GROUP_CHAT_ID, GROUP_INVITE_LINK
+import aiohttp
+from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD, GROUP_CHAT_ID, GROUP_INVITE_LINK, OPENAI_API_KEY
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -948,6 +949,77 @@ search_sessions = {}
 pending_message_targets = {}
 
 
+def _normalize_base64(photo_base64: str) -> str:
+    if photo_base64 and "," in photo_base64 and photo_base64.startswith("data:"):
+        return photo_base64.split(",", 1)[1]
+    return photo_base64
+
+
+async def moderate_image_base64(photo_base64: str):
+    """
+    OpenAI Moderation API (omni-moderation-latest) orqali rasmni tekshiradi.
+    Pornografiya yoki qurol-yarog' aniqlansa -> (False, sabab) qaytaradi.
+    Tekshirib bo'lmasa (API xato, key yo'q) -> xavfsizlik uchun (False, 'check_failed').
+    Rasm toza bo'lsa -> (True, None).
+    """
+    if not OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY sozlanmagan - rasm moderatsiyasi o'tkazib bo'lmaydi")
+        return False, "moderation_not_configured"
+
+    clean_b64 = _normalize_base64(photo_base64)
+    if not clean_b64:
+        return False, "invalid_image"
+
+    data_url = f"data:image/jpeg;base64,{clean_b64}"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/moderations",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "omni-moderation-latest",
+                    "input": [
+                        {"type": "image_url", "image_url": {"url": data_url}}
+                    ],
+                },
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.error("OpenAI moderation API xatolik: %s %s", resp.status, body)
+                    return False, "moderation_api_error"
+                result = await resp.json()
+    except Exception as exc:
+        logger.error("OpenAI moderation so'rovida xatolik: %s", exc, exc_info=True)
+        return False, "moderation_api_error"
+
+    try:
+        item = result["results"][0]
+        flagged = item.get("flagged", False)
+        categories = item.get("categories", {}) or {}
+
+        # Pornografiya / jinsiy kontent
+        is_sexual = bool(categories.get("sexual")) or bool(categories.get("sexual/minors"))
+        # Qurol-yarog' (zo'ravonlik bilan bog'liq kategoriya)
+        is_weapon = bool(categories.get("violence")) or bool(categories.get("violence/graphic"))
+
+        if is_sexual:
+            return False, "sexual_content"
+        if is_weapon:
+            return False, "weapon_content"
+        if flagged:
+            return False, "policy_violation"
+
+        return True, None
+    except Exception as exc:
+        logger.error("Moderation javobini tahlil qilishda xatolik: %s", exc, exc_info=True)
+        return False, "moderation_parse_error"
+
+
 def get_photo_input(user):
     photo_file_id = user.get("photo_file_id")
     if photo_file_id:
@@ -958,9 +1030,7 @@ def get_photo_input(user):
         return None
 
     try:
-        if "," in photo_base64 and photo_base64.startswith("data:"):
-            photo_base64 = photo_base64.split(",", 1)[1]
-
+        photo_base64 = _normalize_base64(photo_base64)
         image_bytes = base64.b64decode(photo_base64)
         return BufferedInputFile(image_bytes, filename="profile_photo.jpg")
     except Exception as exc:
@@ -2312,6 +2382,31 @@ async def save_profile_api(request):
             return web.json_response({'success': False, 'error': 'profile required'}, status=400)
         profile['telegram_id'] = int(telegram_id)
         profile['username'] = profile.get('username')
+
+        # === AI Filter: rasm yuklanayotgan bo'lsa, avtomatik tekshirish ===
+        photo_base64 = profile.get('photo_base64')
+        if photo_base64:
+            is_safe, reason = await moderate_image_base64(photo_base64)
+            if not is_safe:
+                error_messages = {
+                    "sexual_content": "Rasmda nomaqbul (pornografik) kontent aniqlandi. Iltimos, boshqa rasm yuklang.",
+                    "weapon_content": "Rasmda qurol-yarog' aniqlandi. Iltimos, boshqa rasm yuklang.",
+                    "policy_violation": "Rasm qoidalarga mos kelmadi. Iltimos, boshqa rasm yuklang.",
+                    "invalid_image": "Rasm formati noto'g'ri. Iltimos, qaytadan urinib ko'ring.",
+                    "moderation_not_configured": "Rasm tekshiruv xizmati sozlanmagan. Administratorga murojaat qiling.",
+                    "moderation_api_error": "Rasmni tekshirishda xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring.",
+                    "moderation_parse_error": "Rasmni tekshirishda xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring.",
+                }
+                logger.warning(
+                    "Profil rasmi AI filterdan o'tmadi: telegram_id=%s, sabab=%s",
+                    telegram_id, reason
+                )
+                return web.json_response({
+                    'success': False,
+                    'error': error_messages.get(reason, "Rasm tekshiruvidan o'tmadi."),
+                    'reason': reason,
+                }, status=400)
+
         success = await db.save_user(int(telegram_id), profile)
         return web.json_response({'success': success})
     except Exception as e:
