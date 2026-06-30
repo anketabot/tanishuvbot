@@ -1567,33 +1567,26 @@ async def search_gender_callback(callback: types.CallbackQuery):
     my_zodiac_key = normalize_zodiac_key(me.get('zodiac') or '') if me else None
 
     filters = {}
-    opposite_gender = 'ayol' if my_gender == 'erkak' else 'erkak'
 
     if gender_value == "all":
         # Barchasi: faqat o'zining jinsidagilarni chiqarmaslik
         if my_gender:
             filters["exclude_gender"] = my_gender
-        # Barchasi da burj foizini ko'rsatamiz (qarama-qarshi jins uchun)
-        filters["searcher_zodiac_key"] = my_zodiac_key
-        filters["searcher_gender"] = my_gender
     else:
-        # Aniq jins tanlangan: foydalanuvchi tanlagan jinsni qidiradi
+        # Foydalanuvchi qaysi jinsni tanlagan bo'lsa, o'sha jinsni qidiradi
         filters["gender"] = gender_value
-        # Burj moslik foizini FAQAT qarama-qarshi jins qidirilganda ko'rsatamiz
-        if my_gender and gender_value == opposite_gender:
-            filters["searcher_zodiac_key"] = my_zodiac_key
-        # Agar o'z jinsini qidirsa — searcher_zodiac_key yuborilmaydi → foiz ko'rsatilmaydi
+
+    # Burj moslik foizi uchun
+    filters["searcher_zodiac_key"] = my_zodiac_key
 
     users = await db.search_users(callback.from_user.id, filters)
     if not users:
         await callback.message.answer(t(lang, 'no_results'))
         return
 
-    # Burj foizini faqat qarama-qarshi jins qidirilganda session ga saqlaymiz
-    show_zodiac = (gender_value == 'all') or (my_gender and gender_value == opposite_gender)
     search_sessions[callback.from_user.id] = {
         'users': users, 'index': 0, 'lang': lang,
-        'searcher_zodiac_key': my_zodiac_key if show_zodiac else None,
+        'searcher_zodiac_key': my_zodiac_key,
     }
     await show_search_candidate(callback.message, callback.from_user.id, 0, lang)
 
@@ -2181,6 +2174,31 @@ async def search_api(request):
     except Exception as e:
         logger.error(f"SEARCH API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def search_count_api(request):
+    """Filtrlar bo'yicha foydalanuvchilar sonini qaytaradi (statistika ko'rsatish uchun)."""
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        filters = data.get('filters', {})
+        if telegram_id is None:
+            telegram_id = 0
+
+        if telegram_id:
+            try:
+                searcher = await db.get_user(int(telegram_id))
+                if searcher:
+                    filters['searcher_goals'] = searcher.get('goals') or []
+            except Exception:
+                pass
+
+        count = await db.count_search_users(int(telegram_id) if telegram_id else 0, filters)
+        return web.json_response({'success': True, 'count': count})
+    except Exception as e:
+        logger.error(f"SEARCH COUNT API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'count': 0, 'error': str(e)}, status=500)
+
 
 
 async def profile_api(request):
@@ -2785,6 +2803,7 @@ async def main():
     app.middlewares.append(cors_middleware)
 
     app.router.add_post('/api/search', search_api)
+    app.router.add_post('/api/search/count', search_count_api)
     app.router.add_post('/api/profile', profile_api)
     app.router.add_post('/api/save_profile', save_profile_api)
     app.router.add_post('/api/admin/users', admin_users_api)
