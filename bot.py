@@ -2968,13 +2968,36 @@ async def verify_status_api(request: web.Request):
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id kerak'}, status=400)
         status = await db.get_verification_status(int(telegram_id))
-        return web.json_response({'success': True, **status})
+        verified_at = status.get('verified_at')
+        if verified_at is not None and hasattr(verified_at, 'isoformat'):
+            verified_at = verified_at.isoformat()
+        return web.json_response({
+            'success': True,
+            'is_verified': status.get('is_verified', False),
+            'verified_at': verified_at,
+        })
     except Exception as e:
         logger.error(f"VERIFY STATUS xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-# ========== MAIN ==========
+async def moderate_photo_api(request: web.Request):
+    """
+    Rasm yuklashdan oldin (preview bosqichida) AI filter orqali tekshirish.
+    Body: { photo_base64 }
+    Javob: { success, ok, reason }
+    """
+    try:
+        data = await request.json()
+        photo_base64 = data.get('photo_base64', '')
+        if not photo_base64:
+            return web.json_response({'success': False, 'error': 'photo_base64 required'}, status=400)
+
+        is_safe, reason = await moderate_image_base64(photo_base64)
+        return web.json_response({'success': True, 'ok': is_safe, 'reason': reason})
+    except Exception as e:
+        logger.error(f"MODERATE PHOTO API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
 async def main():
     await db.init_db()
     await db.init_db()
@@ -3014,6 +3037,7 @@ async def main():
     # Verifikatsiya
     app.router.add_post('/api/verify/upload', verify_upload_api)
     app.router.add_post('/api/verify/status', verify_status_api)
+    app.router.add_post('/api/moderate_photo', moderate_photo_api)
 
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
