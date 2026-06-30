@@ -199,6 +199,19 @@ async def init_db():
             )
         """)
 
+        # Shikoyatlar (report) - pornografiya, narkotik, zo'ravonlik va h.k.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS reports (
+                id BIGSERIAL PRIMARY KEY,
+                reporter_id BIGINT NOT NULL,
+                reported_id BIGINT NOT NULL,
+                category TEXT NOT NULL,
+                comment TEXT,
+                status TEXT DEFAULT 'new',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
         # MIGRATION: Bir tomonlama like asosida yaratilgan "yetim" matchlarni o'chirish.
         # Match faqat ikki tomonlama like bo'lganda yaratilishi kerak.
         # Bu avvalgi versiyada noto'g'ri yaratilgan matchlarni tozalaydi.
@@ -1027,6 +1040,63 @@ async def block_user(blocker, blocked):
             "INSERT INTO blocks (blocker, blocked) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             blocker, blocked
         )
+    finally:
+        await conn.close()
+
+
+# ========== SHIKOYAT (REPORT) FUNKSIYALARI ==========
+async def create_report(reporter_id, reported_id, category, comment=None):
+    """Foydalanuvchidan shikoyat qabul qilib, bazaga yozadi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "INSERT INTO reports (reporter_id, reported_id, category, comment) "
+            "VALUES ($1, $2, $3, $4) RETURNING id, created_at",
+            reporter_id, reported_id, category, comment
+        )
+        return dict(row) if row else None
+    finally:
+        await conn.close()
+
+
+async def get_reports(status=None, limit=100):
+    """Admin uchun shikoyatlar ro'yxati (ixtiyoriy status bo'yicha filtr)."""
+    conn = await get_db()
+    try:
+        if status:
+            rows = await conn.fetch(
+                "SELECT r.*, ru.full_name AS reporter_name, ru.username AS reporter_username, "
+                "tu.full_name AS reported_name, tu.username AS reported_username "
+                "FROM reports r "
+                "LEFT JOIN users ru ON ru.telegram_id = r.reporter_id "
+                "LEFT JOIN users tu ON tu.telegram_id = r.reported_id "
+                "WHERE r.status = $1 ORDER BY r.created_at DESC LIMIT $2",
+                status, limit
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT r.*, ru.full_name AS reporter_name, ru.username AS reporter_username, "
+                "tu.full_name AS reported_name, tu.username AS reported_username "
+                "FROM reports r "
+                "LEFT JOIN users ru ON ru.telegram_id = r.reporter_id "
+                "LEFT JOIN users tu ON tu.telegram_id = r.reported_id "
+                "ORDER BY r.created_at DESC LIMIT $1",
+                limit
+            )
+        return [dict(row) for row in rows]
+    finally:
+        await conn.close()
+
+
+async def get_report_count_for_user(reported_id):
+    """Berilgan foydalanuvchiga nechta shikoyat tushganini hisoblaydi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT COUNT(*) AS total FROM reports WHERE reported_id = $1",
+            reported_id
+        )
+        return row['total'] if row else 0
     finally:
         await conn.close()
 
