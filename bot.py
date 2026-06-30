@@ -18,6 +18,10 @@ from aiohttp import web
 import database as db
 import aiohttp
 from config import BOT_TOKEN, WEBAPP_URL, ADMIN_PASSWORD, GROUP_CHAT_ID, GROUP_INVITE_LINK, OPENAI_API_KEY
+try:
+    from config import ADMIN_CHAT_ID
+except ImportError:
+    ADMIN_CHAT_ID = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -118,8 +122,17 @@ T = {
         'super_like_match_notify': "🎉⭐ *{name}* {sticker}Super Like yubordi va match bo'ldi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Super Like qabul qilindi! *{name}* sizni ham yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
         'super_like_sticker': "⭐ Super Like uchun stiker tanlang:",
-    },
-    'ru': {
+        'btn_report': "❗️ Shikoyat",
+        'report_choose_category': "❗️ *Shikoyat berish*\n\nNima sababdan shikoyat qilmoqchisiz?",
+        'report_cat_porn': "🔞 Pornografiya",
+        'report_cat_drugs': "💊 Narkotik",
+        'report_cat_violence': "⚔️ Zo'ravonlik",
+        'report_cat_fraud': "🎭 Firibgarlik / Soxta anketa",
+        'report_cat_spam': "📢 Spam / Reklama",
+        'report_cat_other': "❓ Boshqa sabab",
+        'report_sent': "✅ Shikoyatingiz qabul qilindi. Moderatorlar tez orada ko'rib chiqishadi.",
+        'report_error': "❌ Shikoyat yuborishda xatolik yuz berdi.",
+        'admin_new_report': "❗️ *Yangi shikoyat*\n\n👤 Shikoyatchi: {reporter}\n🎯 Kim haqida: {reported}\n📂 Sabab: {category}\n💬 Izoh: {comment}",
         'welcome': "👋 Здравствуйте, {name}!\n\n💙 *Добро пожаловать в бот знакомств!*\n\nЗдесь вы можете найти новых друзей и общаться.",
         'select_language': "🌍 Пожалуйста, выберите язык:",
         'language_changed': "✅ Язык изменён: {language_name}",
@@ -650,6 +663,9 @@ def build_candidate_keyboard(lang, telegram_id):
         InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"search_message:{telegram_id}")
     )
     builder.row(
+        InlineKeyboardButton(text=t(lang, 'btn_report'), callback_data=f"report_pick:{telegram_id}")
+    )
+    builder.row(
         InlineKeyboardButton(text=t(lang, 'btn_back'), callback_data="show_main_menu")
     )
     return builder.as_markup()
@@ -667,6 +683,19 @@ def build_sticker_picker_keyboard(lang, telegram_id):
     if row:
         builder.row(*row)
     builder.row(InlineKeyboardButton(text=t(lang, 'btn_skip'), callback_data=f"search_super_like_cancel:{telegram_id}"))
+    return builder.as_markup()
+
+
+def build_report_category_keyboard(lang, telegram_id):
+    """Shikoyat sababini tanlash klaviaturasi."""
+    builder = InlineKeyboardBuilder()
+    categories = ['porn', 'drugs', 'violence', 'fraud', 'spam', 'other']
+    for cat in categories:
+        builder.row(InlineKeyboardButton(
+            text=t(lang, f'report_cat_{cat}'),
+            callback_data=f"report_send:{telegram_id}:{cat}"
+        ))
+    builder.row(InlineKeyboardButton(text=t(lang, 'btn_skip'), callback_data=f"report_cancel:{telegram_id}"))
     return builder.as_markup()
 
 
@@ -1337,6 +1366,9 @@ async def send_candidate_card(message, user, lang='uz'):
     )
     builder.row(
         InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"write_{user['telegram_id']}")
+    )
+    builder.row(
+        InlineKeyboardButton(text=t(lang, 'btn_report'), callback_data=f"report_pick:{user['telegram_id']}")
     )
 
     if photo:
@@ -2242,6 +2274,77 @@ async def write_callback(callback: types.CallbackQuery):
         await callback.answer(t(lang, 'need_like_first'), show_alert=True)
 
 
+# ========== SHIKOYAT (REPORT) ==========
+REPORT_CATEGORY_LABELS_UZ = {
+    'porn': "🔞 Pornografiya",
+    'drugs': "💊 Narkotik",
+    'violence': "⚔️ Zo'ravonlik",
+    'fraud': "🎭 Firibgarlik / Soxta anketa",
+    'spam': "📢 Spam / Reklama",
+    'other': "❓ Boshqa sabab",
+}
+
+
+async def notify_admins_about_report(reporter, reported_user, category, comment=None):
+    """Yangi shikoyat haqida admin/guruhga xabar yuboradi."""
+    target_chat = ADMIN_CHAT_ID or GROUP_CHAT_ID
+    if not target_chat:
+        return
+    reporter_label = f"@{reporter.get('username')}" if reporter and reporter.get('username') else f"ID: {reporter.get('telegram_id') if reporter else '—'}"
+    reported_label = f"@{reported_user.get('username')}" if reported_user and reported_user.get('username') else f"ID: {reported_user.get('telegram_id') if reported_user else '—'}"
+    category_label = REPORT_CATEGORY_LABELS_UZ.get(category, category)
+    text = t('uz', 'admin_new_report',
+             reporter=reporter_label,
+             reported=reported_label,
+             category=category_label,
+             comment=comment or '—')
+    try:
+        await bot.send_message(target_chat, text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Admin report notify xatolik: {e}")
+
+
+@dp.callback_query(F.data.startswith("report_pick:"))
+async def report_pick_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
+    reported_id = int(callback.data.split(":")[1])
+    await callback.message.answer(
+        t(lang, 'report_choose_category'),
+        parse_mode="Markdown",
+        reply_markup=build_report_category_keyboard(lang, reported_id)
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("report_send:"))
+async def report_send_callback(callback: types.CallbackQuery):
+    lang = await get_user_lang(callback.from_user.id)
+    _, reported_id_str, category = callback.data.split(":")
+    reported_id = int(reported_id_str)
+    try:
+        await db.create_report(callback.from_user.id, reported_id, category)
+        reporter = await db.get_user(callback.from_user.id)
+        reported_user = await db.get_user(reported_id)
+        await notify_admins_about_report(reporter, reported_user, category)
+        await callback.answer(t(lang, 'report_sent'), show_alert=True)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"Report send xatolik: {e}")
+        await callback.answer(t(lang, 'report_error'), show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("report_cancel:"))
+async def report_cancel_callback(callback: types.CallbackQuery):
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
+
+
 # ========== HTTP API ==========
 def serialize_value(value):
     if isinstance(value, (list, tuple)):
@@ -2998,6 +3101,60 @@ async def moderate_photo_api(request: web.Request):
     except Exception as e:
         logger.error(f"MODERATE PHOTO API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+VALID_REPORT_CATEGORIES = {'porn', 'drugs', 'violence', 'fraud', 'spam', 'other'}
+
+
+async def report_api(request: web.Request):
+    """
+    Web App'dan shikoyat (report) yuborish.
+    Body: { reporter_id, reported_id, category, comment? }
+    """
+    try:
+        data = await request.json()
+        try:
+            reporter_id = int(data.get('reporter_id'))
+            reported_id = int(data.get('reported_id'))
+        except (TypeError, ValueError):
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+
+        category = (data.get('category') or 'other').strip().lower()
+        if category not in VALID_REPORT_CATEGORIES:
+            category = 'other'
+        comment = (data.get('comment') or '').strip()[:500] or None
+
+        if reporter_id <= 0 or reported_id <= 0 or reporter_id == reported_id:
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+
+        await db.create_report(reporter_id, reported_id, category, comment)
+
+        reporter = await db.get_user(reporter_id)
+        reported_user = await db.get_user(reported_id)
+        await notify_admins_about_report(reporter, reported_user, category, comment)
+
+        return web.json_response({'success': True})
+    except Exception as e:
+        logger.error(f"REPORT API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def block_api(request: web.Request):
+    """Web App'dan foydalanuvchini bloklash."""
+    try:
+        data = await request.json()
+        try:
+            blocker = int(data.get('blocker'))
+            blocked = int(data.get('blocked'))
+        except (TypeError, ValueError):
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+        await db.block_user(blocker, blocked)
+        return web.json_response({'success': True})
+    except Exception as e:
+        logger.error(f"BLOCK API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def main():
     await db.init_db()
     await db.init_db()
@@ -3038,6 +3195,10 @@ async def main():
     app.router.add_post('/api/verify/upload', verify_upload_api)
     app.router.add_post('/api/verify/status', verify_status_api)
     app.router.add_post('/api/moderate_photo', moderate_photo_api)
+
+    # Shikoyat va blok
+    app.router.add_post('/api/report', report_api)
+    app.router.add_post('/api/block', block_api)
 
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
