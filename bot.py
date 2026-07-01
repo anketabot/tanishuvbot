@@ -1191,8 +1191,9 @@ async def analyze_report_with_ai(category, comment, reported_profile, chat_histo
 
     if chat_history:
         chat_lines = []
+        reported_tg_id = reported_profile.get('telegram_id') if reported_profile else None
         for m in chat_history:
-            who = "Shikoyat qilingan" if m['from_user'] == reported_profile.get('telegram_id') else "Shikoyatchi"
+            who = "Shikoyat qilingan" if m['from_user'] == reported_tg_id else "Shikoyatchi"
             chat_lines.append(f"{who}: {m['message']}")
         chat_text = "\n".join(chat_lines)
     else:
@@ -1261,17 +1262,26 @@ async def process_report_with_ai(reporter_id, reported_id, category, comment):
     AI tahlilini chaqiradi, qoidabuzarlik tasdiqlansa foydalanuvchini avtomatik spamga (banga) tushiradi.
     Inson moderator ishtirok etmaydi.
 
+    Kutilmagan xatolik yuz bersa ham 'violation, reason' natijasi qaytariladi -
+    shu bilan shikoyat holati (status) doim yangilanib, 'new' holatida abadiy qolib ketmasligi ta'minlanadi.
+
     Qaytaradi: dict { violation, reason, spam_count, banned_until }
     """
-    reported_profile = await db.get_user(reported_id)
-    chat_history = await db.get_chat_history_between(reporter_id, reported_id)
-
-    violation, reason = await analyze_report_with_ai(category, comment, reported_profile, chat_history)
+    try:
+        reported_profile = await db.get_user(reported_id)
+        chat_history = await db.get_chat_history_between(reporter_id, reported_id)
+        violation, reason = await analyze_report_with_ai(category, comment, reported_profile, chat_history)
+    except Exception as exc:
+        logger.error("process_report_with_ai kutilmagan xatolik: %s", exc, exc_info=True)
+        violation, reason = False, "internal_error"
 
     spam_count = None
     banned_until = None
     if violation:
-        spam_count, banned_until = await db.apply_spam_ban(reported_id)
+        try:
+            spam_count, banned_until = await db.apply_spam_ban(reported_id)
+        except Exception as exc:
+            logger.error("apply_spam_ban xatolik: %s", exc, exc_info=True)
 
     return {
         'violation': violation,
