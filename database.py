@@ -1,5 +1,6 @@
 import asyncpg
 import json
+import random
 from datetime import datetime, date, timedelta
 from config import DATABASE_URL
 
@@ -232,6 +233,53 @@ async def init_db():
         """)
         await conn.execute("""
             ALTER TABLE reports ADD COLUMN IF NOT EXISTS banned_until TIMESTAMP
+        """)
+
+        # ===== TUNGI ANONIM CHAT ("Kechqurungi sirli suhbatdosh") =====
+        # Har kuni kechqurun (21:00) tizim ikki mos foydalanuvchini anonim ravishda ulaydi.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS anon_matches (
+                id BIGSERIAL PRIMARY KEY,
+                user_a BIGINT NOT NULL,
+                user_b BIGINT NOT NULL,
+                match_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                status TEXT NOT NULL DEFAULT 'pending',
+                user_a_accepted BOOLEAN,
+                user_b_accepted BOOLEAN,
+                user_a_reveal BOOLEAN DEFAULT FALSE,
+                user_b_reveal BOOLEAN DEFAULT FALSE,
+                revealed_match_id BIGINT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS anon_chat_messages (
+                id BIGSERIAL PRIMARY KEY,
+                anon_match_id BIGINT NOT NULL,
+                sender_id BIGINT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+        # Har bir kun uchun moslashtirish faqat bir marta ishga tushishini nazorat qilish
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS anon_match_runs (
+                run_date DATE PRIMARY KEY,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_anon_matches_user_a ON anon_matches(user_a)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_anon_matches_user_b ON anon_matches(user_b)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_anon_chat_messages_match ON anon_chat_messages(anon_match_id)
         """)
 
         # MIGRATION: Bir tomonlama like asosida yaratilgan "yetim" matchlarni o'chirish.
@@ -1546,6 +1594,252 @@ async def mark_messages_read(match_id, reader_id):
             "UPDATE chat_messages SET is_read = TRUE WHERE match_id = $1 AND sender_id != $2",
             match_id, reader_id
         )
+    finally:
+        await conn.close()
+
+
+# ========== TUNGI ANONIM CHAT ==========
+async def has_anon_run_today(run_date):
+    """Berilgan sana uchun moslashtirish allaqachon ishga tushganmi, tekshiradi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("SELECT run_date FROM anon_match_runs WHERE run_date = $1", run_date)
+        return row is not None
+    finally:
+        await conn.close()
+
+
+async def mark_anon_run(run_date):
+    conn = await get_db()
+    try:
+        await conn.execute(
+            "INSERT INTO anon_match_runs (run_date) VALUES ($1) ON CONFLICT DO NOTHING",
+            run_date
+        )
+    finally:
+        await conn.close()
+
+
+async def create_daily_anon_matches(run_date):
+    """Kechqurungi anonim chat uchun jinsi mos (erkak-ayol) faol foydalanuvchilarni
+    tasodifiy juftlab, 'pending' holatda taklif yaratadi. Avval hech qachon
+    anonim juft bo'lmagan foydalanuvchilarga ustunlik beriladi.
+    Yaratilgan juftliklar ro'yxatini qaytaradi: [(user_a, user_b, anon_match_id), ...]
+    """
+    conn = await get_db()
+    try:
+        rows = await conn.fetch("""
+            SELECT telegram_id, gender FROM users
+            WHERE is_active = TRUE
+              AND gender IN ('erkak', 'ayol')
+              AND full_name IS NOT NULL
+              AND (banned_until IS NULL OR banned_until < NOW())
+        """)
+        males = [r['telegram_id'] for r in rows if r['gender'] == 'erkak']
+        females = [r['telegram_id'] for r in rows if r['gender'] == 'ayol']
+        random.shuffle(males)
+        random.shuffle(females)
+
+        history_rows = await conn.fetch("SELECT user_a, user_b FROM anon_matches")
+        paired_before = set()
+        for r in history_rows:
+            paired_before.add((r['user_a'], r['user_b']))
+            paired_before.add((r['user_b'], r['user_a']))
+
+        used_females = set()
+        created_pairs = []
+
+        def pick_partner(male_id, avoid_history=True):
+            for f in females:
+                if f in used_females:
+                    continue
+                if avoid_history and (male_id, f) in paired_before:
+                    continue
+                return f
+            return None
+
+        for m in males:
+            partner = pick_partner(m, avoid_history=True)
+            if partner is None:
+                # Barchasi avval juftlashgan bo'lsa ham, bo'sh bo'lgan birini olamiz
+                partner = pick_partner(m, avoid_history=False)
+            if partner is None:
+                continue
+            used_females.add(partner)
+            row = await conn.fetchrow(
+                """INSERT INTO anon_matches (user_a, user_b, match_date, status)
+                   VALUES ($1, $2, $3, 'pending') RETURNING id""",
+                m, partner, run_date
+            )
+            created_pairs.append((m, partner, row['id']))
+
+        return created_pairs
+    finally:
+        await conn.close()
+
+
+async def get_my_anon_match(telegram_id):
+    """Foydalanuvchining joriy anonim chat holatini (kutilayotgan taklif yoki faol suhbat) qaytaradi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("""
+            SELECT * FROM anon_matches
+            WHERE (user_a = $1 OR user_b = $1)
+              AND status IN ('pending', 'active')
+            ORDER BY created_at DESC LIMIT 1
+        """, telegram_id)
+        return dict(row) if row else None
+    finally:
+        await conn.close()
+
+
+async def get_anon_match(anon_match_id):
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("SELECT * FROM anon_matches WHERE id = $1", anon_match_id)
+        return dict(row) if row else None
+    finally:
+        await conn.close()
+
+
+async def respond_anon_match(telegram_id, anon_match_id, accept):
+    """Foydalanuvchi taklifni qabul qildi (accept=True) yoki rad etdi (accept=False).
+    Ikkalasi ham qabul qilsa 'active' bo'ladi. Kimdir rad etsa juftlik 'declined' bo'ladi
+    va suhbatdoshning oldiga ham xabar chiqishi uchun ikkinchi foydalanuvchi id'si qaytariladi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT * FROM anon_matches WHERE id = $1 AND status = 'pending'", anon_match_id
+        )
+        if not row or telegram_id not in (row['user_a'], row['user_b']):
+            return None
+
+        other_id = row['user_b'] if telegram_id == row['user_a'] else row['user_a']
+
+        if not accept:
+            await conn.execute(
+                "UPDATE anon_matches SET status = 'declined', updated_at = NOW() WHERE id = $1",
+                anon_match_id
+            )
+            return {'status': 'declined', 'other_id': other_id}
+
+        is_a = telegram_id == row['user_a']
+        col = 'user_a_accepted' if is_a else 'user_b_accepted'
+        await conn.execute(
+            f"UPDATE anon_matches SET {col} = TRUE, updated_at = NOW() WHERE id = $1",
+            anon_match_id
+        )
+        updated = await conn.fetchrow("SELECT * FROM anon_matches WHERE id = $1", anon_match_id)
+        if updated['user_a_accepted'] and updated['user_b_accepted']:
+            await conn.execute(
+                "UPDATE anon_matches SET status = 'active', updated_at = NOW() WHERE id = $1",
+                anon_match_id
+            )
+            return {'status': 'active', 'other_id': other_id}
+        return {'status': 'waiting', 'other_id': other_id}
+    finally:
+        await conn.close()
+
+
+async def get_anon_messages(anon_match_id, limit=300):
+    conn = await get_db()
+    try:
+        rows = await conn.fetch(
+            "SELECT * FROM anon_chat_messages WHERE anon_match_id = $1 ORDER BY created_at ASC LIMIT $2",
+            anon_match_id, limit
+        )
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+async def send_anon_message(anon_match_id, sender_id, message):
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT status, user_a, user_b FROM anon_matches WHERE id = $1", anon_match_id
+        )
+        if not row or row['status'] != 'active' or sender_id not in (row['user_a'], row['user_b']):
+            return False
+        await conn.execute(
+            "INSERT INTO anon_chat_messages (anon_match_id, sender_id, message) VALUES ($1, $2, $3)",
+            anon_match_id, sender_id, message
+        )
+        return True
+    finally:
+        await conn.close()
+
+
+async def request_anon_reveal(telegram_id, anon_match_id):
+    """Foydalanuvchi profilni ochishni (asosiy chatga o'tishni) so'raydi.
+    Ikkalasi ham so'rasa - anonim suhbat asosiy (ochiq) chatga aylantiriladi,
+    barcha xabarlar asosiy chatga ko'chiriladi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT * FROM anon_matches WHERE id = $1 AND status = 'active'", anon_match_id
+        )
+        if not row or telegram_id not in (row['user_a'], row['user_b']):
+            return None
+
+        other_id = row['user_b'] if telegram_id == row['user_a'] else row['user_a']
+        is_a = telegram_id == row['user_a']
+        col = 'user_a_reveal' if is_a else 'user_b_reveal'
+        await conn.execute(
+            f"UPDATE anon_matches SET {col} = TRUE, updated_at = NOW() WHERE id = $1",
+            anon_match_id
+        )
+        updated = await conn.fetchrow("SELECT * FROM anon_matches WHERE id = $1", anon_match_id)
+
+        if updated['user_a_reveal'] and updated['user_b_reveal']:
+            u1, u2 = min(updated['user_a'], updated['user_b']), max(updated['user_a'], updated['user_b'])
+            match_row = await conn.fetchrow(
+                "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
+                u1, u2
+            )
+            if not match_row:
+                match_row = await conn.fetchrow(
+                    "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2", u1, u2
+                )
+            match_id = match_row['id']
+
+            msgs = await conn.fetch(
+                """SELECT sender_id, message, created_at FROM anon_chat_messages
+                   WHERE anon_match_id = $1 ORDER BY created_at ASC""",
+                anon_match_id
+            )
+            for m in msgs:
+                await conn.execute(
+                    """INSERT INTO chat_messages (match_id, sender_id, message, created_at)
+                       VALUES ($1, $2, $3, $4)""",
+                    match_id, m['sender_id'], m['message'], m['created_at']
+                )
+
+            await conn.execute(
+                "UPDATE anon_matches SET status = 'revealed', revealed_match_id = $1, updated_at = NOW() WHERE id = $2",
+                match_id, anon_match_id
+            )
+            return {'status': 'revealed', 'match_id': match_id, 'other_id': other_id}
+        return {'status': 'waiting', 'other_id': other_id}
+    finally:
+        await conn.close()
+
+
+async def disconnect_anon_match(telegram_id, anon_match_id):
+    """Anonim chatni butunlay yakunlaydi: suhbat xabarlari o'chiriladi va ikkala
+    tomon ham ajratiladi. `other_id` - suhbatdoshga xabar berish uchun qaytariladi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("SELECT * FROM anon_matches WHERE id = $1", anon_match_id)
+        if not row or telegram_id not in (row['user_a'], row['user_b']):
+            return None
+        other_id = row['user_b'] if telegram_id == row['user_a'] else row['user_a']
+        await conn.execute("DELETE FROM anon_chat_messages WHERE anon_match_id = $1", anon_match_id)
+        await conn.execute(
+            "UPDATE anon_matches SET status = 'ended', updated_at = NOW() WHERE id = $1",
+            anon_match_id
+        )
+        return {'other_id': other_id}
     finally:
         await conn.close()
 
