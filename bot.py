@@ -1,9 +1,12 @@
 import asyncio
 import base64
+import io
 import json
 import logging
 import os
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
+from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import CommandStart, Command
@@ -106,6 +109,10 @@ T = {
         'like_accepted': "🎉 *{name}* sizning like-ingizni qabul qildi!\n\n💬 Endi Web App'dagi Chat bo'limidan suhbat boshlashingiz mumkin.",
         'chat_started': "✅ Siz *{name}* bilan muloqotni boshladingiz!",
         'rejected': "❌ *{name}* sizni rad qildi.\n\nKeyinroq yana sinab ko'ring.",
+        'anon_invite_notify': "🌙 *Kechqurungi sirli suhbatdosh*\n\nSizga bugun kechqurun anonim suhbatdosh topildi! Ismi va rasmi hozircha yashirin.\n\nWeb App'ni oching va \"Muloqot\" bo'limidan qabul qiling yoki rad eting 👇",
+        'anon_declined_notify': "😔 Suhbatdoshingiz anonim chatni rad etdi. Ertaga yana urinib ko'rasiz!",
+        'anon_disconnected_notify': "🚪 Suhbatdoshingiz anonim chatni tark etdi. Suhbat yakunlandi.",
+        'anon_revealed_notify': "🎉 Ajoyib! Ikkalangiz ham profilni ochishga rozi bo'ldingiz. Endi asosiy Chat bo'limida suhbatni davom ettirishingiz mumkin.",
         'like_not_found': "Like topilmadi",
         'super_like_label': "⭐ *Super Like Match!* ",
         'match_label': "🎉 *Match!* ",
@@ -1032,6 +1039,56 @@ def _normalize_base64(photo_base64: str) -> str:
     if photo_base64 and "," in photo_base64 and photo_base64.startswith("data:"):
         return photo_base64.split(",", 1)[1]
     return photo_base64
+
+
+def watermark_image_base64(photo_base64: str, watermark_text: str) -> str:
+    """
+    Rasm ustiga diagonal, takrorlanuvchi, shaffof watermark (masalan @username yoki ID)
+    qo'shadi. Watermark rasmning piksellariga "kuydiriladi" - shuning uchun uni
+    skrinshot olib tashlab bo'lmaydi va frontendda hech qanday usul bilan olib
+    tashlanmaydi. Bu skrinshot/screen-record qilingan taqdirda ham, rasm kimning
+    ekanini va kimga ko'rsatilganini izlash imkonini beradi.
+    """
+    try:
+        clean_b64 = _normalize_base64(photo_base64)
+        raw = base64.b64decode(clean_b64)
+        img = Image.open(io.BytesIO(raw)).convert("RGBA")
+
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        font_size = max(14, img.width // 22)
+        try:
+            font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size
+            )
+        except Exception:
+            font = ImageFont.load_default()
+
+        text = f" {watermark_text} "
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+
+        step_x = text_w + 60
+        step_y = text_h + 60
+
+        for y in range(-step_y, img.height + step_y, step_y):
+            offset = 0 if (y // step_y) % 2 == 0 else step_x // 2
+            for x in range(-step_x, img.width + step_x, step_x):
+                draw.text((x + offset, y), text, font=font, fill=(255, 255, 255, 90))
+
+        rotated = overlay.rotate(30, expand=False)
+        watermarked = Image.alpha_composite(img, rotated)
+        watermarked = watermarked.convert("RGB")
+
+        buf = io.BytesIO()
+        watermarked.save(buf, format="JPEG", quality=88)
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
+    except Exception as exc:
+        logger.error("Watermark qo'yishda xatolik: %s", exc, exc_info=True)
+        # Watermark qo'yib bo'lmasa ham, original rasmni saqlashda davom etamiz
+        return photo_base64
 
 
 async def moderate_image_base64(photo_base64: str):
@@ -2747,6 +2804,13 @@ async def save_profile_api(request):
                     'reason': reason,
                 }, status=400)
 
+        # === Watermark: rasm AI filterdan o'tgach, ustiga foydalanuvchi
+        # belgisini "kuydiramiz" - skrinshot olinsa ham kim ekanligi bilinadi ===
+        if photo_base64:
+            username = profile.get('username')
+            wm_label = f"@{username}" if username else f"ID:{telegram_id}"
+            profile['photo_base64'] = watermark_image_base64(photo_base64, wm_label)
+
         success = await db.save_user(int(telegram_id), profile)
         return web.json_response({'success': success})
     except Exception as e:
@@ -3420,6 +3484,203 @@ async def block_api(request: web.Request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+# ========== TUNGI ANONIM CHAT (API) ==========
+TASHKENT_TZ = timezone(timedelta(hours=5))  # Asia/Tashkent (DST yo'q)
+
+
+def _anon_public_status(anon_row, telegram_id):
+    """Frontendga faqat kerakli (identifikatsiya qilmaydigan) ma'lumotni qaytaradi."""
+    if not anon_row:
+        return None
+    is_a = telegram_id == anon_row['user_a']
+    my_accepted = anon_row['user_a_accepted'] if is_a else anon_row['user_b_accepted']
+    other_accepted = anon_row['user_b_accepted'] if is_a else anon_row['user_a_accepted']
+    my_reveal = anon_row['user_a_reveal'] if is_a else anon_row['user_b_reveal']
+    other_reveal = anon_row['user_b_reveal'] if is_a else anon_row['user_a_reveal']
+    return {
+        'anon_match_id': anon_row['id'],
+        'status': anon_row['status'],
+        'my_accepted': bool(my_accepted),
+        'other_accepted': bool(other_accepted),
+        'my_reveal_requested': bool(my_reveal),
+        'other_reveal_requested': bool(other_reveal),
+    }
+
+
+async def anon_status_api(request):
+    """Foydalanuvchining joriy tungi anonim chat holatini qaytaradi (taklif/faol/yo'q)."""
+    try:
+        data = await request.json()
+        telegram_id = int(data.get('telegram_id'))
+        row = await db.get_my_anon_match(telegram_id)
+        return web.json_response({'success': True, 'anon': _anon_public_status(row, telegram_id)})
+    except Exception as e:
+        logger.error(f"ANON STATUS API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def anon_respond_api(request):
+    """Foydalanuvchi anonim chat taklifini qabul qiladi yoki rad etadi."""
+    try:
+        data = await request.json()
+        telegram_id = int(data.get('telegram_id'))
+        anon_match_id = int(data.get('anon_match_id'))
+        accept = bool(data.get('accept'))
+
+        result = await db.respond_anon_match(telegram_id, anon_match_id, accept)
+        if not result:
+            return web.json_response({'success': False, 'error': 'Taklif topilmadi'}, status=404)
+
+        other_id = result.get('other_id')
+        try:
+            if result['status'] == 'declined' and other_id:
+                other_lang = await get_user_lang(other_id)
+                await bot.send_message(other_id, t(other_lang, 'anon_declined_notify'))
+            elif result['status'] == 'active' and other_id:
+                other_lang = await get_user_lang(other_id)
+                await bot.send_message(other_id, "💬 " + t(other_lang, 'anon_invite_notify').split('\n\n')[0] + "\n\nSuhbatdoshingiz taklifni qabul qildi! Anonim chat boshlandi 🎉")
+        except Exception as notify_err:
+            logger.warning(f"Anon respond notify error: {notify_err}")
+
+        return web.json_response({'success': True, 'status': result['status']})
+    except Exception as e:
+        logger.error(f"ANON RESPOND API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def anon_messages_api(request):
+    try:
+        data = await request.json()
+        telegram_id = int(data.get('telegram_id'))
+        anon_match_id = int(data.get('anon_match_id'))
+        row = await db.get_anon_match(anon_match_id)
+        if not row or telegram_id not in (row['user_a'], row['user_b']):
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+        messages = await db.get_anon_messages(anon_match_id)
+        return web.json_response({'success': True, 'messages': [serialize_user(m) for m in messages]})
+    except Exception as e:
+        logger.error(f"ANON MESSAGES API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def anon_send_api(request):
+    try:
+        data = await request.json()
+        telegram_id = int(data.get('telegram_id'))
+        anon_match_id = int(data.get('anon_match_id'))
+        message = (data.get('message') or '').strip()
+        if not message:
+            return web.json_response({'success': False, 'error': 'Bo\'sh xabar'}, status=400)
+
+        ban_response = await get_ban_error_response(telegram_id)
+        if ban_response:
+            return ban_response
+
+        can_msg = await db.check_and_increment_limit(telegram_id, 'messages')
+        if not can_msg:
+            return web.json_response({
+                'success': False,
+                'error': 'limit_exceeded',
+                'message': 'Kunlik xabar yuborish limitingiz tugadi!'
+            }, status=403)
+
+        ok = await db.send_anon_message(anon_match_id, telegram_id, message)
+        return web.json_response({'success': ok})
+    except Exception as e:
+        logger.error(f"ANON SEND API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def anon_reveal_api(request):
+    """Foydalanuvchi profilni ochish (asosiy chatga o'tish)ni so'raydi."""
+    try:
+        data = await request.json()
+        telegram_id = int(data.get('telegram_id'))
+        anon_match_id = int(data.get('anon_match_id'))
+
+        result = await db.request_anon_reveal(telegram_id, anon_match_id)
+        if not result:
+            return web.json_response({'success': False, 'error': 'Chat topilmadi'}, status=404)
+
+        other_id = result.get('other_id')
+        try:
+            if result['status'] == 'revealed' and other_id:
+                for uid in (telegram_id, other_id):
+                    lang = await get_user_lang(uid)
+                    await bot.send_message(uid, t(lang, 'anon_revealed_notify'))
+        except Exception as notify_err:
+            logger.warning(f"Anon reveal notify error: {notify_err}")
+
+        return web.json_response({'success': True, 'result': result})
+    except Exception as e:
+        logger.error(f"ANON REVEAL API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def anon_disconnect_api(request):
+    """Anonim chatni yakunlaydi (ajratish): xabarlar o'chiriladi, ikkalasi ham ajraladi."""
+    try:
+        data = await request.json()
+        telegram_id = int(data.get('telegram_id'))
+        anon_match_id = int(data.get('anon_match_id'))
+
+        result = await db.disconnect_anon_match(telegram_id, anon_match_id)
+        if not result:
+            return web.json_response({'success': False, 'error': 'Chat topilmadi'}, status=404)
+
+        other_id = result.get('other_id')
+        try:
+            if other_id:
+                other_lang = await get_user_lang(other_id)
+                await bot.send_message(other_id, t(other_lang, 'anon_disconnected_notify'))
+        except Exception as notify_err:
+            logger.warning(f"Anon disconnect notify error: {notify_err}")
+
+        return web.json_response({'success': True})
+    except Exception as e:
+        logger.error(f"ANON DISCONNECT API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def _notify_anon_pair(user_a, user_b):
+    for uid in (user_a, user_b):
+        try:
+            lang = await get_user_lang(uid)
+            builder = InlineKeyboardBuilder()
+            builder.row(InlineKeyboardButton(text=t(lang, 'btn_webapp'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+            await bot.send_message(
+                uid,
+                t(lang, 'anon_invite_notify'),
+                parse_mode="Markdown",
+                reply_markup=builder.as_markup()
+            )
+        except TelegramForbiddenError:
+            pass
+        except Exception as e:
+            logger.warning(f"Anon invite notify error for {uid}: {e}")
+
+
+async def anon_match_scheduler():
+    """Har kuni Toshkent vaqti bilan soat 21:00 da mos foydalanuvchilarni
+    anonim chatga ulaydi. Server doim ishlab turadigan background task."""
+    logger.info("Anonim tungi chat scheduler ishga tushdi (kunlik 21:00, Toshkent vaqti)")
+    while True:
+        try:
+            now = datetime.now(TASHKENT_TZ)
+            today = now.date()
+            if now.hour == 21:
+                already_ran = await db.has_anon_run_today(today)
+                if not already_ran:
+                    await db.mark_anon_run(today)
+                    pairs = await db.create_daily_anon_matches(today)
+                    logger.info(f"Anonim chat: {len(pairs)} ta juftlik yaratildi ({today})")
+                    for user_a, user_b, _anon_id in pairs:
+                        await _notify_anon_pair(user_a, user_b)
+        except Exception as e:
+            logger.error(f"Anon match scheduler xatolik: {e}", exc_info=True)
+        await asyncio.sleep(60)
+
+
 async def main():
     await db.init_db()
     await db.init_db()
@@ -3464,6 +3725,16 @@ async def main():
     # Shikoyat va blok
     app.router.add_post('/api/report', report_api)
     app.router.add_post('/api/block', block_api)
+
+    # Tungi anonim chat
+    app.router.add_post('/api/anon/status', anon_status_api)
+    app.router.add_post('/api/anon/respond', anon_respond_api)
+    app.router.add_post('/api/anon/messages', anon_messages_api)
+    app.router.add_post('/api/anon/send', anon_send_api)
+    app.router.add_post('/api/anon/reveal', anon_reveal_api)
+    app.router.add_post('/api/anon/disconnect', anon_disconnect_api)
+
+    asyncio.create_task(anon_match_scheduler())
 
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
