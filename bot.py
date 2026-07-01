@@ -1290,6 +1290,29 @@ async def analyze_report_with_ai(category, comment, reported_profile, chat_histo
         return False, "ai_parse_error"
 
 
+def _has_strong_report_evidence(category, comment):
+    category_key = (category or '').strip().lower()
+    comment_text = (comment or '').strip().lower()
+    if not comment_text:
+        return False
+
+    keywords = []
+    if category_key == 'porn':
+        keywords = ['porn', 'porno', 'sex', 'seks', 'nude', 'naked', 'explicit', 'erotic', 'hardcore', 'xxx']
+    elif category_key == 'drugs':
+        keywords = ['drug', 'nark', 'narkotik', 'weed', 'meth', 'cocaine', 'mdma', 'heroin']
+    elif category_key == 'violence':
+        keywords = ['violence', 'threat', 'kill', 'attack', 'hit', 'abuse', 'weapon']
+    elif category_key == 'fraud':
+        keywords = ['fake', 'fraud', 'scam', 'cheat', 'soxta', 'firib', 'money', 'cash', 'card']
+    elif category_key == 'spam':
+        keywords = ['spam', 'reklama', 'promo', 'link', 'bot', 'sell', 'buy', 'cash', 'money', 'telegram']
+    else:
+        keywords = ['porn', 'spam', 'fake', 'fraud', 'violence', 'drug', 'nude', 'sex']
+
+    return any(term in comment_text for term in keywords)
+
+
 async def process_report_with_ai(reporter_id, reported_id, category, comment):
     """
     Shikoyatni AI orqali to'liq avtomatik tekshiradi: profil va chat tarixini yuklaydi,
@@ -1309,18 +1332,9 @@ async def process_report_with_ai(reporter_id, reported_id, category, comment):
         logger.error("process_report_with_ai kutilmagan xatolik: %s", exc, exc_info=True)
         violation, reason = False, "internal_error"
 
-    if not violation:
-        category_key = (category or '').strip().lower()
-        comment_text = (comment or '').strip().lower()
-        if category_key == 'porn':
-            violation = True
-            reason = reason or "Pornografik / jinsiy kontent haqida shikoyat"
-        elif category_key in {'drugs', 'violence', 'fraud'}:
-            violation = True
-            reason = reason or "Qoidabuzarlik tasdiqlandi"
-        elif category_key == 'spam' and any(term in comment_text for term in ['porn', 'reklama', 'spam', 'link', 'telegram', 'bot', 'sell', 'buy', 'cash', 'money']):
-            violation = True
-            reason = reason or "Spam / reklamani takroriy yuborish aniqlangan"
+    if not violation and _has_strong_report_evidence(category, comment):
+        violation = True
+        reason = reason or "Shikoyatda aniq qoidabuzarlik dalili bor"
 
     spam_count = None
     banned_until = None
