@@ -1720,6 +1720,17 @@ async def start_handler(message: types.Message):
     lang = await get_user_lang(telegram_id)
     user = await db.get_user(telegram_id)
 
+    # /start bosilgan zahoti foydalanuvchi spamda (banlangan) bo'lsa,
+    # buni darhol xabar qilamiz - real-time banned_until vaqti bilan birga.
+    is_banned, banned_until = await db.is_user_banned(telegram_id)
+    if is_banned:
+        until_str = banned_until.strftime('%Y-%m-%d %H:%M') if hasattr(banned_until, 'strftime') else str(banned_until)
+        await message.answer(
+            f"❌ Siz qoidabuzarlik tufayli spamga tushirilgansiz.\n"
+            f"Cheklov muddati: {until_str} gacha."
+        )
+        return
+
 # Agar til tanlanmagan bo'lsa (faqat yangi foydalanuvchi)
     if not user or not user.get('language'):
         await message.answer(
@@ -2769,6 +2780,14 @@ async def profile_api(request):
         telegram_id = data.get('telegram_id')
         if telegram_id is None:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+
+        # Web App ochilgan zahoti (start bosilganda) foydalanuvchi spamda
+        # (banlangan) bo'lsa, buni shu yerda darhol qaytaramiz - real-time
+        # banned_until vaqti bilan birga.
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
+
         user = await db.get_user(int(telegram_id))
         if user:
             return web.json_response({'success': True, 'user': serialize_user(user)})
