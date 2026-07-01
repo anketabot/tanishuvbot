@@ -730,7 +730,7 @@ async def search_users(telegram_id, filters):
             params.append(f"%{filters['zodiac']}%")
             idx += 1
 
-        query += " LIMIT 50"
+        query += " ORDER BY RANDOM() LIMIT 50"
         rows = await conn.fetch(query, *params)
 
         match_rows = await conn.fetch(
@@ -931,7 +931,7 @@ async def search_users_by_zodiac(telegram_id, filters):
             params.append(f"%{filters['city']}%")
             idx += 1
 
-        query += " LIMIT 50"
+        query += " ORDER BY RANDOM() LIMIT 50"
         rows = await conn.fetch(query, *params)
 
         match_rows = await conn.fetch(
