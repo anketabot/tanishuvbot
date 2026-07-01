@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -1035,6 +1036,39 @@ search_sessions = {}
 pending_message_targets = {}
 
 
+class BanGuardMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user_id = None
+        chat_id = None
+        if isinstance(event, types.Message):
+            user_id = event.from_user.id if event.from_user else None
+            chat_id = event.chat.id if event.chat else None
+        elif isinstance(event, types.CallbackQuery):
+            user_id = event.from_user.id if event.from_user else None
+            chat_id = event.message.chat.id if event.message and event.message.chat else None
+
+        if user_id:
+            is_banned, banned_until = await db.is_user_banned(user_id)
+            if is_banned:
+                until_str = banned_until.strftime('%Y-%m-%d %H:%M') if hasattr(banned_until, 'strftime') else str(banned_until)
+                message = f"🚫 Siz qoidabuzarlik tufayli {until_str} gacha cheklangansiz.\n\nBot va Web App ishlatish imkoni yo'q."
+                bot_instance = data.get('bot')
+                if bot_instance and chat_id:
+                    try:
+                        if isinstance(event, types.CallbackQuery):
+                            await event.answer(message, show_alert=True)
+                        else:
+                            await bot_instance.send_message(chat_id, message)
+                    except Exception:
+                        pass
+                return None
+
+        return await handler(event, data)
+
+
+dp.update.outer_middleware(BanGuardMiddleware())
+
+
 def _normalize_base64(photo_base64: str) -> str:
     if photo_base64 and "," in photo_base64 and photo_base64.startswith("data:"):
         return photo_base64.split(",", 1)[1]
@@ -1274,6 +1308,19 @@ async def process_report_with_ai(reporter_id, reported_id, category, comment):
     except Exception as exc:
         logger.error("process_report_with_ai kutilmagan xatolik: %s", exc, exc_info=True)
         violation, reason = False, "internal_error"
+
+    if not violation:
+        category_key = (category or '').strip().lower()
+        comment_text = (comment or '').strip().lower()
+        if category_key == 'porn':
+            violation = True
+            reason = reason or "Pornografik / jinsiy kontent haqida shikoyat"
+        elif category_key in {'drugs', 'violence', 'fraud'}:
+            violation = True
+            reason = reason or "Qoidabuzarlik tasdiqlandi"
+        elif category_key == 'spam' and any(term in comment_text for term in ['porn', 'reklama', 'spam', 'link', 'telegram', 'bot', 'sell', 'buy', 'cash', 'money']):
+            violation = True
+            reason = reason or "Spam / reklamani takroriy yuborish aniqlangan"
 
     spam_count = None
     banned_until = None
@@ -3491,7 +3538,19 @@ async def report_api(request: web.Request):
 
         await notify_admins_about_report(reporter, reported_user, category, comment, ai_result)
 
-        return web.json_response({'success': True})
+        if ai_result.get('violation') and ai_result.get('banned_until'):
+            until_str = ai_result['banned_until'].strftime('%Y-%m-%d %H:%M') if hasattr(ai_result['banned_until'], 'strftime') else str(ai_result['banned_until'])
+            return web.json_response({
+                'success': True,
+                'banned': True,
+                'violation': True,
+                'reason': ai_result.get('reason'),
+                'spam_count': ai_result.get('spam_count'),
+                'banned_until': until_str,
+                'message': f"Siz qoidabuzarlik tufayli {until_str} gacha cheklangansiz."
+            })
+
+        return web.json_response({'success': True, 'banned': False})
     except Exception as e:
         logger.error(f"REPORT API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
