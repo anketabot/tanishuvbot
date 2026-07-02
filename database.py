@@ -131,14 +131,6 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS only_serious_men BOOLEAN DEFAULT FALSE
         """)
 
-        # ===== SPAM / BAN (AI moderatsiya orqali avtomatik aniqlangan) =====
-        await conn.execute("""
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS spam_count INTEGER DEFAULT 0
-        """)
-        await conn.execute("""
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_until TIMESTAMP
-        """)
-
         # Likes
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS likes (
@@ -256,33 +248,6 @@ async def init_db():
                 is_delivered BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW()
             )
-        """)
-
-        # Shikoyatlar (report) - pornografiya, narkotik, zo'ravonlik va h.k.
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS reports (
-                id BIGSERIAL PRIMARY KEY,
-                reporter_id BIGINT NOT NULL,
-                reported_id BIGINT NOT NULL,
-                category TEXT NOT NULL,
-                comment TEXT,
-                status TEXT DEFAULT 'new',
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-
-        # AI orqali avtomatik tekshiruv natijalari
-        await conn.execute("""
-            ALTER TABLE reports ADD COLUMN IF NOT EXISTS ai_violation BOOLEAN
-        """)
-        await conn.execute("""
-            ALTER TABLE reports ADD COLUMN IF NOT EXISTS ai_reason TEXT
-        """)
-        await conn.execute("""
-            ALTER TABLE reports ADD COLUMN IF NOT EXISTS ban_tier INTEGER
-        """)
-        await conn.execute("""
-            ALTER TABLE reports ADD COLUMN IF NOT EXISTS banned_until TIMESTAMP
         """)
 
         # ===== TUNGI ANONIM CHAT ("Kechqurungi sirli suhbatdosh") =====
@@ -716,7 +681,6 @@ async def search_users(telegram_id, filters):
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
-            AND (banned_until IS NULL OR banned_until < NOW())
             AND (
                 only_serious_men = FALSE OR only_serious_men IS NULL
                 OR (only_serious_men = TRUE AND $2 = TRUE)
@@ -943,7 +907,6 @@ async def search_users_by_zodiac(telegram_id, filters):
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
-            AND (banned_until IS NULL OR banned_until < NOW())
             AND zodiac IS NOT NULL
             AND (
                 only_serious_men = FALSE OR only_serious_men IS NULL
@@ -1039,7 +1002,6 @@ async def count_search_users(telegram_id, filters):
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
-            AND (banned_until IS NULL OR banned_until < NOW())
             AND (
                 only_serious_men = FALSE OR only_serious_men IS NULL
                 OR (only_serious_men = TRUE AND $2 = TRUE)
@@ -1166,187 +1128,6 @@ async def block_user(blocker, blocked):
     finally:
         await release_db(conn)
 
-
-# ========== SHIKOYAT (REPORT) FUNKSIYALARI ==========
-async def create_report(reporter_id, reported_id, category, comment=None):
-    """Foydalanuvchidan shikoyat qabul qilib, bazaga yozadi."""
-    conn = await get_db()
-    try:
-        row = await conn.fetchrow(
-            "INSERT INTO reports (reporter_id, reported_id, category, comment) "
-            "VALUES ($1, $2, $3, $4) RETURNING id, created_at",
-            reporter_id, reported_id, category, comment
-        )
-        return dict(row) if row else None
-    finally:
-        await release_db(conn)
-
-
-async def update_report_ai_result(report_id, ai_violation, ai_reason, ban_tier=None, banned_until=None):
-    """AI tekshiruvi natijasini shikoyat yozuviga saqlaydi."""
-    conn = await get_db()
-    try:
-        await conn.execute(
-            "UPDATE reports SET ai_violation = $2, ai_reason = $3, ban_tier = $4, "
-            "banned_until = $5, status = $6 WHERE id = $1",
-            report_id, ai_violation, ai_reason, ban_tier, banned_until,
-            'confirmed' if ai_violation else 'rejected'
-        )
-    finally:
-        await release_db(conn)
-
-
-async def get_reports(status=None, limit=100):
-    """Admin uchun shikoyatlar ro'yxati (ixtiyoriy status bo'yicha filtr)."""
-    conn = await get_db()
-    try:
-        if status:
-            rows = await conn.fetch(
-                "SELECT r.*, ru.full_name AS reporter_name, ru.username AS reporter_username, "
-                "tu.full_name AS reported_name, tu.username AS reported_username "
-                "FROM reports r "
-                "LEFT JOIN users ru ON ru.telegram_id = r.reporter_id "
-                "LEFT JOIN users tu ON tu.telegram_id = r.reported_id "
-                "WHERE r.status = $1 ORDER BY r.created_at DESC LIMIT $2",
-                status, limit
-            )
-        else:
-            rows = await conn.fetch(
-                "SELECT r.*, ru.full_name AS reporter_name, ru.username AS reporter_username, "
-                "tu.full_name AS reported_name, tu.username AS reported_username "
-                "FROM reports r "
-                "LEFT JOIN users ru ON ru.telegram_id = r.reporter_id "
-                "LEFT JOIN users tu ON tu.telegram_id = r.reported_id "
-                "ORDER BY r.created_at DESC LIMIT $1",
-                limit
-            )
-        return [dict(row) for row in rows]
-    finally:
-        await release_db(conn)
-
-
-async def get_report_count_for_user(reported_id):
-    """Berilgan foydalanuvchiga nechta shikoyat tushganini hisoblaydi."""
-    conn = await get_db()
-    try:
-        row = await conn.fetchrow(
-            "SELECT COUNT(*) AS total FROM reports WHERE reported_id = $1",
-            reported_id
-        )
-        return row['total'] if row else 0
-    finally:
-        await release_db(conn)
-
-
-# ========== SPAM / BAN FUNKSIYALARI ==========
-# Spam bosqichlari: 1-chi -> 1 kun, 2-chi -> 1 hafta, 3-chi -> 2 hafta, 4-chi -> 1 oy, 5-chi va undan ko'p -> 1 yil
-BAN_TIER_DURATIONS = {
-    1: timedelta(days=1),
-    2: timedelta(weeks=1),
-    3: timedelta(weeks=2),
-    4: timedelta(days=30),
-    5: timedelta(days=365),
-}
-
-
-def get_ban_duration_for_tier(tier: int) -> timedelta:
-    if tier >= 5:
-        return BAN_TIER_DURATIONS[5]
-    return BAN_TIER_DURATIONS.get(tier, BAN_TIER_DURATIONS[5])
-
-
-async def apply_spam_ban(telegram_id):
-    """
-    AI tasdiqlagan shikoyatdan so'ng foydalanuvchini avtomatik spamga (banga) tushiradi.
-    Spam soni oshadi va shu songa qarab muddat belgilanadi:
-    1 -> 1 kun, 2 -> 1 hafta, 3 -> 2 hafta, 4 -> 1 oy, 5+ -> 1 yil.
-    Qaytaradi: (spam_count, banned_until)
-    """
-    conn = await get_db()
-    try:
-        row = await conn.fetchrow(
-            "UPDATE users SET spam_count = COALESCE(spam_count, 0) + 1 "
-            "WHERE telegram_id = $1 RETURNING spam_count",
-            telegram_id
-        )
-        if not row:
-            return None, None
-        spam_count = row['spam_count']
-        duration = get_ban_duration_for_tier(spam_count)
-        banned_until = datetime.now() + duration
-        await conn.execute(
-            "UPDATE users SET banned_until = $2 WHERE telegram_id = $1",
-            telegram_id, banned_until
-        )
-        return spam_count, banned_until
-    finally:
-        await release_db(conn)
-
-
-async def is_user_banned(telegram_id):
-    """Foydalanuvchi hozirda spamda (banlangan) ekanini tekshiradi."""
-    conn = await get_db()
-    try:
-        row = await conn.fetchrow(
-            "SELECT banned_until FROM users WHERE telegram_id = $1",
-            telegram_id
-        )
-        if not row or not row['banned_until']:
-            return False, None
-        if row['banned_until'] > datetime.now():
-            return True, row['banned_until']
-        return False, None
-    finally:
-        await release_db(conn)
-
-
-async def get_chat_history_between(user1, user2, limit=80):
-    """
-    Ikki foydalanuvchi orasidagi (match orqali yoki match bo'lmasdan yuborilgan)
-    barcha xabarlarni vaqt tartibida qaytaradi. AI tekshiruvi uchun ishlatiladi.
-    Har bir element: { from_user, to_user, message, created_at }
-    """
-    conn = await get_db()
-    try:
-        u1, u2 = min(user1, user2), max(user1, user2)
-        match_row = await conn.fetchrow(
-            "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2",
-            u1, u2
-        )
-        messages = []
-        if match_row:
-            rows = await conn.fetch(
-                "SELECT sender_id, message, created_at FROM chat_messages "
-                "WHERE match_id = $1 ORDER BY created_at ASC LIMIT $2",
-                match_row['id'], limit
-            )
-            for r in rows:
-                other = user2 if r['sender_id'] == user1 else user1
-                messages.append({
-                    'from_user': r['sender_id'],
-                    'to_user': other,
-                    'message': r['message'],
-                    'created_at': r['created_at'],
-                })
-
-        pending_rows = await conn.fetch(
-            "SELECT from_user, to_user, message, created_at FROM pending_messages "
-            "WHERE (from_user = $1 AND to_user = $2) OR (from_user = $2 AND to_user = $1) "
-            "ORDER BY created_at ASC LIMIT $3",
-            user1, user2, limit
-        )
-        for r in pending_rows:
-            messages.append({
-                'from_user': r['from_user'],
-                'to_user': r['to_user'],
-                'message': r['message'],
-                'created_at': r['created_at'],
-            })
-
-        messages.sort(key=lambda m: m['created_at'])
-        return messages[-limit:]
-    finally:
-        await release_db(conn)
 
 
 async def get_all_users():
@@ -1683,7 +1464,6 @@ async def create_daily_anon_matches(run_date):
             WHERE is_active = TRUE
               AND gender IN ('erkak', 'ayol')
               AND full_name IS NOT NULL
-              AND (banned_until IS NULL OR banned_until < NOW())
         """)
         males = [r['telegram_id'] for r in rows if r['gender'] == 'erkak']
         females = [r['telegram_id'] for r in rows if r['gender'] == 'ayol']
@@ -2026,4 +1806,4 @@ async def get_verification_status(telegram_id: int):
     except Exception:
         return {'is_verified': False, 'verified_at': None}
     finally:
-        await release_db(conn)
+        await release_db(conn)a
