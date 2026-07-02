@@ -1806,4 +1806,4 @@ async def get_verification_status(telegram_id: int):
     except Exception:
         return {'is_verified': False, 'verified_at': None}
     finally:
-        await release_db(conn)a
+        await release_db(conn)
