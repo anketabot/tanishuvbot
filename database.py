@@ -4,8 +4,58 @@ import random
 from datetime import datetime, date, timedelta
 from config import DATABASE_URL
 
+# ========== CONNECTION POOL ==========
+# Har bir so'rov uchun yangi TCP/SSL ulanish ochish o'rniga (bu yuqori
+# yuklamada Postgres'ning max_connections limitini tugatib, sock_connect
+# TimeoutError'larga olib kelgan edi), bitta umumiy pool ishlatiladi.
+_pool = None
+
+
+async def init_pool():
+    """Ilova ishga tushganda BIR MARTA chaqiriladi va umumiy pool yaratadi."""
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(
+            DATABASE_URL,
+            min_size=2,
+            max_size=20,
+            max_inactive_connection_lifetime=300,
+            command_timeout=30,
+            timeout=10,
+        )
+    return _pool
+
+
+async def close_pool():
+    """Ilova to'xtaganda pool'ni tozalab yopadi."""
+    global _pool
+    if _pool is not None:
+        await _pool.close()
+        _pool = None
+
+
 async def get_db():
-    return await asyncpg.connect(DATABASE_URL)
+    """
+    Pool'dan bo'sh connection oladi (yangi TCP ulanish ochmaydi).
+    Qaytarilgan connection ishlatib bo'lingach albatta release_db(conn)
+    chaqirilishi shart (conn.close() emas!).
+    """
+    global _pool
+    if _pool is None:
+        await init_pool()
+    return await _pool.acquire()
+
+
+async def release_db(conn):
+    """Connection'ni pool'ga qaytaradi. Har bir get_db() dan keyin finally blokida chaqiriladi."""
+    global _pool
+    if conn is None:
+        return
+    if _pool is not None:
+        try:
+            await _pool.release(conn)
+        except Exception:
+            pass
 
 async def init_db():
     conn = await get_db()
@@ -298,7 +348,7 @@ async def init_db():
         """)
 
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ========== TIL FUNKSIYALARI ==========
@@ -314,7 +364,7 @@ async def get_user_language(telegram_id):
             return row['language']
         return 'uz'  # default
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def set_user_language(telegram_id, language):
@@ -342,7 +392,7 @@ async def set_user_language(telegram_id, language):
         print(f"Error setting language: {e}")
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ========== DAILY LIMITS ==========
@@ -376,7 +426,7 @@ async def get_daily_limits(telegram_id):
             )
             return {'likes_used': 0, 'messages_used': 0, 'super_likes_used': 0}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def is_unlimited(telegram_id):
@@ -390,7 +440,7 @@ async def is_unlimited(telegram_id):
             return row['unlimited_until'] > datetime.now()
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def is_female_user(telegram_id):
@@ -405,7 +455,7 @@ async def is_female_user(telegram_id):
             return True
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def is_male_user(telegram_id):
@@ -420,7 +470,7 @@ async def is_male_user(telegram_id):
             return True
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def check_and_increment_limit(telegram_id, limit_type):
@@ -467,7 +517,7 @@ async def _increment_limit(telegram_id, column):
             telegram_id
         )
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_limit_status(telegram_id):
@@ -559,7 +609,7 @@ async def process_referral(referrer_id, referred_id):
 
         return True, f"✅ {count} ta odam qo'shildi. 5 tagacha: 1 hafta, 10 tagacha: 1 oy limitsiz."
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_referral_status(telegram_id):
@@ -577,7 +627,7 @@ async def get_referral_status(telegram_id):
             }
         return {'referral_count': 0, 'unlimited_until': None, 'is_unlimited': False}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_referral_link(telegram_id, bot_username):
@@ -629,7 +679,7 @@ async def save_user(telegram_id, data):
         print(f"Error saving user: {e}")
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_user(telegram_id):
@@ -640,7 +690,7 @@ async def get_user(telegram_id):
             return dict(row)
         return None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def search_users(telegram_id, filters):
@@ -755,7 +805,7 @@ async def search_users(telegram_id, filters):
             result.append(user)
         return result
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 def _normalize_zodiac_for_db(value):
@@ -950,7 +1000,7 @@ async def search_users_by_zodiac(telegram_id, filters):
             result.append(user)
         return result
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def count_search_users(telegram_id, filters):
@@ -1064,7 +1114,7 @@ async def count_search_users(telegram_id, filters):
         row = await conn.fetchrow(query, *params)
         return row['total'] if row else 0
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def add_like(from_user, to_user, is_super=False):
@@ -1090,7 +1140,7 @@ async def add_like(from_user, to_user, is_super=False):
             )
         return mutual is not None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_match_id(user1, user2):
@@ -1103,7 +1153,7 @@ async def get_match_id(user1, user2):
         )
         return row['id'] if row else None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def block_user(blocker, blocked):
@@ -1114,7 +1164,7 @@ async def block_user(blocker, blocked):
             blocker, blocked
         )
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ========== SHIKOYAT (REPORT) FUNKSIYALARI ==========
@@ -1129,7 +1179,7 @@ async def create_report(reporter_id, reported_id, category, comment=None):
         )
         return dict(row) if row else None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def update_report_ai_result(report_id, ai_violation, ai_reason, ban_tier=None, banned_until=None):
@@ -1143,7 +1193,7 @@ async def update_report_ai_result(report_id, ai_violation, ai_reason, ban_tier=N
             'confirmed' if ai_violation else 'rejected'
         )
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_reports(status=None, limit=100):
@@ -1172,7 +1222,7 @@ async def get_reports(status=None, limit=100):
             )
         return [dict(row) for row in rows]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_report_count_for_user(reported_id):
@@ -1185,7 +1235,7 @@ async def get_report_count_for_user(reported_id):
         )
         return row['total'] if row else 0
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ========== SPAM / BAN FUNKSIYALARI ==========
@@ -1230,7 +1280,7 @@ async def apply_spam_ban(telegram_id):
         )
         return spam_count, banned_until
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def is_user_banned(telegram_id):
@@ -1247,7 +1297,7 @@ async def is_user_banned(telegram_id):
             return True, row['banned_until']
         return False, None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_chat_history_between(user1, user2, limit=80):
@@ -1296,7 +1346,7 @@ async def get_chat_history_between(user1, user2, limit=80):
         messages.sort(key=lambda m: m['created_at'])
         return messages[-limit:]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_all_users():
@@ -1308,7 +1358,7 @@ async def get_all_users():
         )
         return [dict(row) for row in rows]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_user_stats():
@@ -1324,7 +1374,7 @@ async def get_user_stats():
         )
         return dict(row) if row else {'total': 0, 'male': 0, 'female': 0, 'avg_age': None}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_top_cities(limit=10):
@@ -1338,7 +1388,7 @@ async def get_top_cities(limit=10):
         )
         return [dict(row) for row in rows]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def can_write(from_user, to_user):
@@ -1350,7 +1400,7 @@ async def can_write(from_user, to_user):
         )
         return match is not None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def increment_super_like_usage(from_user):
@@ -1361,7 +1411,7 @@ async def increment_super_like_usage(from_user):
             from_user
         )
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ========== CHAT & MATCH FUNCTIONS ==========
@@ -1382,7 +1432,7 @@ async def get_pending_likes(telegram_id):
         """, telegram_id)
         return [dict(r) for r in rows]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def accept_like(telegram_id, from_user):
@@ -1406,7 +1456,7 @@ async def accept_like(telegram_id, from_user):
             )
         return row['id'] if row else None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def reject_like(telegram_id, from_user):
@@ -1418,7 +1468,7 @@ async def reject_like(telegram_id, from_user):
         )
         return result == 'DELETE 1'
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_matches(telegram_id):
@@ -1442,7 +1492,7 @@ async def get_matches(telegram_id):
         """, telegram_id)
         return [dict(r) for r in rows]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def create_match(user1, user2):
@@ -1459,7 +1509,7 @@ async def create_match(user1, user2):
             )
         return row['id'] if row else None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_chat_messages(match_id, limit=50):
@@ -1471,7 +1521,7 @@ async def get_chat_messages(match_id, limit=50):
         )
         return [dict(r) for r in rows][::-1]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def send_chat_message(match_id, sender_id, message):
@@ -1485,7 +1535,7 @@ async def send_chat_message(match_id, sender_id, message):
     except Exception:
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ========== PENDING MESSAGES ==========
@@ -1501,7 +1551,7 @@ async def save_pending_message(from_user, to_user, message):
     except Exception:
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_pending_messages_for_match(match_id):
@@ -1544,7 +1594,7 @@ async def get_pending_messages_for_match(match_id):
         print(f"get_pending_messages_for_match error: {e}")
         return 0
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def deliver_pending_messages_to_match(from_user, to_user):
@@ -1584,7 +1634,7 @@ async def deliver_pending_messages_to_match(from_user, to_user):
         print(f"deliver_pending_messages_to_match error: {e}")
         return 0
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def mark_messages_read(match_id, reader_id):
@@ -1595,7 +1645,7 @@ async def mark_messages_read(match_id, reader_id):
             match_id, reader_id
         )
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ========== TUNGI ANONIM CHAT ==========
@@ -1606,7 +1656,7 @@ async def has_anon_run_today(run_date):
         row = await conn.fetchrow("SELECT run_date FROM anon_match_runs WHERE run_date = $1", run_date)
         return row is not None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def mark_anon_run(run_date):
@@ -1617,7 +1667,7 @@ async def mark_anon_run(run_date):
             run_date
         )
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def create_daily_anon_matches(run_date):
@@ -1675,7 +1725,7 @@ async def create_daily_anon_matches(run_date):
 
         return created_pairs
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_my_anon_match(telegram_id):
@@ -1690,7 +1740,7 @@ async def get_my_anon_match(telegram_id):
         """, telegram_id)
         return dict(row) if row else None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_anon_match(anon_match_id):
@@ -1699,7 +1749,7 @@ async def get_anon_match(anon_match_id):
         row = await conn.fetchrow("SELECT * FROM anon_matches WHERE id = $1", anon_match_id)
         return dict(row) if row else None
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def respond_anon_match(telegram_id, anon_match_id, accept):
@@ -1738,7 +1788,7 @@ async def respond_anon_match(telegram_id, anon_match_id, accept):
             return {'status': 'active', 'other_id': other_id}
         return {'status': 'waiting', 'other_id': other_id}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_anon_messages(anon_match_id, limit=300):
@@ -1750,7 +1800,7 @@ async def get_anon_messages(anon_match_id, limit=300):
         )
         return [dict(r) for r in rows]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def send_anon_message(anon_match_id, sender_id, message):
@@ -1767,7 +1817,7 @@ async def send_anon_message(anon_match_id, sender_id, message):
         )
         return True
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def request_anon_reveal(telegram_id, anon_match_id):
@@ -1822,7 +1872,7 @@ async def request_anon_reveal(telegram_id, anon_match_id):
             return {'status': 'revealed', 'match_id': match_id, 'other_id': other_id}
         return {'status': 'waiting', 'other_id': other_id}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def disconnect_anon_match(telegram_id, anon_match_id):
@@ -1841,7 +1891,7 @@ async def disconnect_anon_match(telegram_id, anon_match_id):
         )
         return {'other_id': other_id}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ========== REFERRAL FUNCTIONS ==========
@@ -1857,7 +1907,7 @@ async def get_invite_count(telegram_id):
         )
         return row["referral_count"] if row else 0
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def set_group_subscribed(telegram_id, subscribed=True):
@@ -1871,7 +1921,7 @@ async def set_group_subscribed(telegram_id, subscribed=True):
     except Exception:
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_group_subscribed(telegram_id):
@@ -1885,7 +1935,7 @@ async def get_group_subscribed(telegram_id):
             return {'group_subscribed': row['group_subscribed'], 'friends_invited': row['friends_invited']}
         return {'group_subscribed': False, 'friends_invited': 0}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_group_invite_count(telegram_id):
@@ -1897,7 +1947,7 @@ async def get_group_invite_count(telegram_id):
         )
         return row['count'] if row else 0
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_group_invitees(telegram_id):
@@ -1912,7 +1962,7 @@ async def get_group_invitees(telegram_id):
         """, telegram_id)
         return [dict(r) for r in rows]
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def record_group_invite(inviter_id, invited_id):
@@ -1927,7 +1977,7 @@ async def record_group_invite(inviter_id, invited_id):
     except Exception as e:
         return False, str(e)
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def record_group_join(telegram_id, invited_by=None):
@@ -1941,7 +1991,7 @@ async def record_group_join(telegram_id, invited_by=None):
     except Exception:
         pass
     finally:
-        await conn.close()
+        await release_db(conn)
 
 # ========== VERIFIKATSIYA FUNKSIYALARI ==========
 
@@ -1960,7 +2010,7 @@ async def save_selfie_and_verify(telegram_id: int, selfie_base64: str):
     except Exception as e:
         return False
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 async def get_verification_status(telegram_id: int):
@@ -1976,4 +2026,4 @@ async def get_verification_status(telegram_id: int):
     except Exception:
         return {'is_verified': False, 'verified_at': None}
     finally:
-        await conn.close()
+        await release_db(conn)
