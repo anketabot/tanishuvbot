@@ -1,11 +1,13 @@
 import asyncio
 import base64
+import hashlib
+import hmac
 import io
 import json
 import logging
 import os
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qsl
 from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
@@ -2867,6 +2869,11 @@ async def save_profile_api(request):
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
         if not profile:
             return web.json_response({'success': False, 'error': 'profile required'}, status=400)
+
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
+
         profile['telegram_id'] = int(telegram_id)
         profile['username'] = profile.get('username')
 
@@ -2947,6 +2954,9 @@ async def likes_received_api(request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
         likes = await db.get_pending_likes(int(telegram_id))
         return web.json_response({'success': True, 'likes': [serialize_user(u) for u in likes]})
     except Exception as e:
@@ -2961,6 +2971,10 @@ async def accept_like_api(request):
         from_user = data.get('from_user')
         if not telegram_id or not from_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
 
         match_id = await db.accept_like(int(telegram_id), int(from_user))
         if match_id:
@@ -2997,6 +3011,10 @@ async def reject_like_api(request):
         if not telegram_id or not from_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
 
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
+
         rejected = await db.reject_like(int(telegram_id), int(from_user))
         if rejected:
             to_data = await db.get_user(int(telegram_id))
@@ -3024,6 +3042,9 @@ async def matches_api(request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
         matches = await db.get_matches(int(telegram_id))
         return web.json_response({'success': True, 'matches': [serialize_user(m) for m in matches]})
     except Exception as e:
@@ -3035,8 +3056,13 @@ async def chat_messages_api(request):
     try:
         data = await request.json()
         match_id = data.get('match_id')
+        telegram_id = data.get('telegram_id')
         if not match_id:
             return web.json_response({'success': False, 'error': 'match_id required'}, status=400)
+        if telegram_id:
+            ban_response = await get_ban_error_response(int(telegram_id))
+            if ban_response:
+                return ban_response
         messages = await db.get_chat_messages(int(match_id))
         return web.json_response({'success': True, 'messages': [serialize_user(m) for m in messages]})
     except Exception as e:
@@ -3079,6 +3105,9 @@ async def can_write_api(request):
         to_user = data.get('to_user')
         if from_user is None or to_user is None:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        ban_response = await get_ban_error_response(int(from_user))
+        if ban_response:
+            return ban_response
         can = await db.can_write(int(from_user), int(to_user))
         return web.json_response({'success': True, 'can_write': can})
     except Exception as e:
@@ -3285,6 +3314,10 @@ async def user_language_api(request):
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
 
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
+
         # Agar language berilgan bo'lsa, o'zgartirish
         new_lang = data.get('language')
         if new_lang:
@@ -3311,6 +3344,9 @@ async def limit_status_api(request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
         status = await db.get_limit_status(int(telegram_id))
         return web.json_response({'success': True, 'limits': status})
     except Exception as e:
@@ -3324,6 +3360,10 @@ async def referral_status_api(request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
 
         status = await db.get_referral_status(int(telegram_id))
         invite_count = await db.get_group_invite_count(int(telegram_id))
@@ -3391,7 +3431,7 @@ async def leaderboard_api(request):
             week_start = (now - datetime.timedelta(days=now.weekday())).strftime('%Y-%m-%d')
 
         finally:
-            await conn.close()
+            await db.release_db(conn)
 
         def row_to_dict(r):
             return {
@@ -3430,6 +3470,10 @@ async def verify_upload_api(request: web.Request):
             return web.json_response({'success': False, 'error': 'telegram_id kerak'}, status=400)
         if not selfie_b64 or len(selfie_b64) < 100:
             return web.json_response({'success': False, 'error': 'Selfie rasm kerak'}, status=400)
+
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
 
         # Rasm o'lchamini tekshirish (base64 ~ 1.33x asl o'lcham)
         # Max 8MB asl rasm ≈ ~11MB base64
@@ -3477,6 +3521,9 @@ async def verify_status_api(request: web.Request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id kerak'}, status=400)
+        ban_response = await get_ban_error_response(int(telegram_id))
+        if ban_response:
+            return ban_response
         status = await db.get_verification_status(int(telegram_id))
         verified_at = status.get('verified_at')
         if verified_at is not None and hasattr(verified_at, 'isoformat'):
@@ -3512,19 +3559,95 @@ async def moderate_photo_api(request: web.Request):
 
 VALID_REPORT_CATEGORIES = {'porn', 'drugs', 'violence', 'fraud', 'spam', 'other'}
 
+# initData necha soniyagacha "yangi" deb hisoblanadi (Telegram tavsiyasi: 24 soat)
+INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
+
+
+def validate_telegram_init_data(init_data: str, max_age_seconds: int = INIT_DATA_MAX_AGE_SECONDS):
+    """
+    Telegram WebApp initData'ni HMAC orqali tasdiqlaydi (rasmiy Telegram algoritmi).
+    https://core.telegram.org/bots/webapps#validating-data-received-via-the-web-app
+
+    Muvaffaqiyatli bo'lsa haqiqiy Telegram foydalanuvchisi ma'lumotini (dict) qaytaradi,
+    aks holda None qaytaradi. Bu client tomonidan yuborilgan xom reporter_id'ga
+    ishonmasdan, kim haqiqatan ham so'rov yuborayotganini serverda tasdiqlash uchun kerak.
+    """
+    if not init_data or not isinstance(init_data, str):
+        return None
+    try:
+        parsed_pairs = parse_qsl(init_data, strict_parsing=True, keep_blank_values=True)
+    except ValueError:
+        return None
+
+    data = dict(parsed_pairs)
+    received_hash = data.pop('hash', None)
+    if not received_hash:
+        return None
+
+    data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
+    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(computed_hash, received_hash):
+        logger.warning("initData HMAC mos kelmadi - soxta/yasama so'rov bo'lishi mumkin")
+        return None
+
+    auth_date = data.get('auth_date')
+    if auth_date:
+        try:
+            age = datetime.now(timezone.utc).timestamp() - int(auth_date)
+            if age > max_age_seconds or age < -60:
+                logger.warning("initData muddati o'tgan (auth_date juda eski)")
+                return None
+        except (TypeError, ValueError):
+            return None
+
+    user_raw = data.get('user')
+    if not user_raw:
+        return None
+    try:
+        user = json.loads(user_raw)
+    except (TypeError, ValueError):
+        return None
+
+    if not user.get('id'):
+        return None
+
+    return user
+
 
 async def report_api(request: web.Request):
     """
     Web App'dan shikoyat (report) yuborish.
-    Body: { reporter_id, reported_id, category, comment? }
+    Body: { init_data, reported_id, category, comment? }
     Shikoyat tushgan zahoti AI (OpenAI) avtomatik tekshiradi - inson moderator ishtirok etmaydi.
     Qoidabuzarlik tasdiqlansa, foydalanuvchi avtomatik spamga (banga) tushadi:
     1-marta -> 1 kun, 2-marta -> 1 hafta, 3-marta -> 2 hafta, 4-marta -> 1 oy, 5-marta va undan ko'p -> 1 yil.
+
+    MUHIM: reporter_id endi client'dan (JSON body'dan) ishonib olinmaydi - buni
+    istalgan odam soxtalashtirib, o'zini boshqa foydalanuvchi qilib ko'rsatib,
+    haqiqiy jabrlanuvchini spamga tushirib qo'yishi mumkin edi. Shuning uchun
+    reporter_id endi faqat Telegram WebApp initData'ning HMAC imzosi orqali
+    serverda tasdiqlangandan keyin olinadi.
     """
     try:
         data = await request.json()
+
+        init_data = data.get('init_data') or request.headers.get('X-Telegram-Init-Data')
+        verified_user = validate_telegram_init_data(init_data)
+        if not verified_user:
+            logger.warning("report_api: initData tasdiqlanmadi, so'rov rad etildi")
+            return web.json_response(
+                {'success': False, 'error': 'Telegram autentifikatsiyasi tasdiqlanmadi'},
+                status=401,
+            )
+        reporter_id = int(verified_user['id'])
+
+        ban_response = await get_ban_error_response(reporter_id)
+        if ban_response:
+            return ban_response
+
         try:
-            reporter_id = int(data.get('reporter_id'))
             reported_id = int(data.get('reported_id'))
         except (TypeError, ValueError):
             return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
@@ -3579,6 +3702,9 @@ async def block_api(request: web.Request):
             blocked = int(data.get('blocked'))
         except (TypeError, ValueError):
             return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+        ban_response = await get_ban_error_response(blocker)
+        if ban_response:
+            return ban_response
         await db.block_user(blocker, blocked)
         return web.json_response({'success': True})
     except Exception as e:
@@ -3614,6 +3740,9 @@ async def anon_status_api(request):
     try:
         data = await request.json()
         telegram_id = int(data.get('telegram_id'))
+        ban_response = await get_ban_error_response(telegram_id)
+        if ban_response:
+            return ban_response
         row = await db.get_my_anon_match(telegram_id)
         return web.json_response({'success': True, 'anon': _anon_public_status(row, telegram_id)})
     except Exception as e:
@@ -3628,6 +3757,10 @@ async def anon_respond_api(request):
         telegram_id = int(data.get('telegram_id'))
         anon_match_id = int(data.get('anon_match_id'))
         accept = bool(data.get('accept'))
+
+        ban_response = await get_ban_error_response(telegram_id)
+        if ban_response:
+            return ban_response
 
         result = await db.respond_anon_match(telegram_id, anon_match_id, accept)
         if not result:
@@ -3655,6 +3788,9 @@ async def anon_messages_api(request):
         data = await request.json()
         telegram_id = int(data.get('telegram_id'))
         anon_match_id = int(data.get('anon_match_id'))
+        ban_response = await get_ban_error_response(telegram_id)
+        if ban_response:
+            return ban_response
         row = await db.get_anon_match(anon_match_id)
         if not row or telegram_id not in (row['user_a'], row['user_b']):
             return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
@@ -3700,6 +3836,10 @@ async def anon_reveal_api(request):
         telegram_id = int(data.get('telegram_id'))
         anon_match_id = int(data.get('anon_match_id'))
 
+        ban_response = await get_ban_error_response(telegram_id)
+        if ban_response:
+            return ban_response
+
         result = await db.request_anon_reveal(telegram_id, anon_match_id)
         if not result:
             return web.json_response({'success': False, 'error': 'Chat topilmadi'}, status=404)
@@ -3725,6 +3865,10 @@ async def anon_disconnect_api(request):
         data = await request.json()
         telegram_id = int(data.get('telegram_id'))
         anon_match_id = int(data.get('anon_match_id'))
+
+        ban_response = await get_ban_error_response(telegram_id)
+        if ban_response:
+            return ban_response
 
         result = await db.disconnect_anon_match(telegram_id, anon_match_id)
         if not result:
@@ -3784,7 +3928,7 @@ async def anon_match_scheduler():
 
 
 async def main():
-    await db.init_db()
+    await db.init_pool()
     await db.init_db()
     logger.info("Bot ishga tushdi...")
     app = web.Application()
@@ -3856,10 +4000,13 @@ async def main():
     await site.start()
     logger.info(f"✅ HTTP API server started on port {port}")
 
-    if webhook_url:
-        await asyncio.Event().wait()
-    else:
-        await dp.start_polling(bot, drop_pending_updates=True)
+    try:
+        if webhook_url:
+            await asyncio.Event().wait()
+        else:
+            await dp.start_polling(bot, drop_pending_updates=True)
+    finally:
+        await db.close_pool()
 
 
 if __name__ == "__main__":
