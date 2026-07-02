@@ -1887,10 +1887,12 @@ async def show_profile_handler(message_or_callback):
         return
 
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
-    goals_text = ", ".join(user["goals"]) if user["goals"] else t(lang, 'not_specified')
-    interests_text = ", ".join((user.get("interests") or [])[:5]) if user.get("interests") else t(lang, 'not_specified')
-    about_text = (user.get("about") or "").strip() or t(lang, 'not_specified')
-    zodiac_text = user.get("zodiac") or t(lang, 'not_specified')
+    goals_text = escape_md(", ".join(user["goals"]) if user["goals"] else t(lang, 'not_specified'))
+    interests_text = escape_md(", ".join((user.get("interests") or [])[:5]) if user.get("interests") else t(lang, 'not_specified'))
+    about_text = escape_md((user.get("about") or "").strip() or t(lang, 'not_specified'))
+    zodiac_text = escape_md(user.get("zodiac") or t(lang, 'not_specified'))
+    full_name = escape_md(user.get('full_name') or 'Anonim')
+    city_text = escape_md(format_location_label(user.get('city')))
 
     limit_status = await db.get_limit_status(user_id)
     if limit_status['unlimited']:
@@ -1902,9 +1904,9 @@ async def show_profile_handler(message_or_callback):
                        super_likes=limit_status['super_likes_used'])
 
     text = (
-        f"{gender_icon} *{user['full_name']}*\n"
+        f"{gender_icon} *{full_name}*\n"
         f"🎂 {t(lang, 'age')}: {user['age']}\n"
-        f"📍 {t(lang, 'city')}: {format_location_label(user.get('city'))}\n"
+        f"📍 {t(lang, 'city')}: {city_text}\n"
         f"⭐ {t(lang, 'zodiac')}: {zodiac_text}\n"
         f"📝 {t(lang, 'about')}: {about_text}\n"
         f"❤️ {t(lang, 'goals')}: {goals_text}\n"
@@ -1913,10 +1915,23 @@ async def show_profile_handler(message_or_callback):
     )
 
     photo = get_photo_input(user)
-    if photo:
-        await send_photo(photo, caption=text, parse_mode="Markdown")
-    else:
-        await send_func(text, parse_mode="Markdown")
+    try:
+        if photo:
+            await send_photo(photo, caption=text, parse_mode="Markdown")
+        else:
+            await send_func(text, parse_mode="Markdown")
+    except Exception as e:
+        # Markdown xato bo'lsa ham (masalan escape qilinmagan kutilmagan belgi),
+        # profil ko'rsatilmay qolmasligi va callback "query too old" holatiga
+        # tushib ketmasligi uchun parse_mode'siz zaxira urinish qilamiz.
+        logger.error(f"show_profile_handler Markdown xatolik, zaxira rejimda yuborilmoqda: {e}")
+        try:
+            if photo:
+                await send_photo(photo, caption=text)
+            else:
+                await send_func(text)
+        except Exception as e2:
+            logger.error(f"show_profile_handler zaxira urinish ham muvaffaqiyatsiz: {e2}")
 
 
 @dp.message(F.text.in_([
