@@ -1202,7 +1202,7 @@ REPORT_CATEGORY_PROMPT_LABELS = {
 }
 
 
-async def analyze_report_with_ai(category, comment, reported_profile, chat_history):
+async def analyze_report_with_ai(category, comment, reported_profile, chat_history, reported_id=None):
     """
     OpenAI chat completion orqali shikoyatni avtomatik tekshiradi.
     Shikoyat qilingan foydalanuvchining profili va shikoyatchi bilan bo'lgan
@@ -1227,7 +1227,13 @@ async def analyze_report_with_ai(category, comment, reported_profile, chat_histo
 
     if chat_history:
         chat_lines = []
-        reported_tg_id = reported_profile.get('telegram_id') if reported_profile else None
+        # MUHIM: reported_tg_id har doim chaqiruvchi tomonidan aniq uzatilgan
+        # reported_id'dan olinadi (profil topilmasa ham noto'g'ri "hamma xabar
+        # shikoyatchiniki" holatiga tushib qolmaslik uchun - bu AI xulosasini
+        # chalkashtirib, haqiqiy buzg'unchini "shikoyatchi" deb ko'rsatishi mumkin edi).
+        reported_tg_id = reported_id if reported_id is not None else (
+            reported_profile.get('telegram_id') if reported_profile else None
+        )
         for m in chat_history:
             who = "Shikoyat qilingan" if m['from_user'] == reported_tg_id else "Shikoyatchi"
             chat_lines.append(f"{who}: {m['message']}")
@@ -1329,7 +1335,9 @@ async def process_report_with_ai(reporter_id, reported_id, category, comment):
     try:
         reported_profile = await db.get_user(reported_id)
         chat_history = await db.get_chat_history_between(reporter_id, reported_id)
-        violation, reason = await analyze_report_with_ai(category, comment, reported_profile, chat_history)
+        violation, reason = await analyze_report_with_ai(
+            category, comment, reported_profile, chat_history, reported_id=reported_id
+        )
     except Exception as exc:
         logger.error("process_report_with_ai kutilmagan xatolik: %s", exc, exc_info=True)
         violation, reason = False, "internal_error"
