@@ -10,7 +10,6 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, parse_qsl
 from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -132,17 +131,6 @@ T = {
         'super_like_match_notify': "🎉⭐ *{name}* {sticker}Super Like yubordi va match bo'ldi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Super Like qabul qilindi! *{name}* sizni ham yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
         'super_like_sticker': "⭐ Super Like uchun stiker tanlang:",
-        'btn_report': "❗️ Shikoyat",
-        'report_choose_category': "❗️ *Shikoyat berish*\n\nNima sababdan shikoyat qilmoqchisiz?",
-        'report_cat_porn': "🔞 Pornografiya",
-        'report_cat_drugs': "💊 Narkotik",
-        'report_cat_violence': "⚔️ Zo'ravonlik",
-        'report_cat_fraud': "🎭 Firibgarlik / Soxta anketa",
-        'report_cat_spam': "📢 Spam / Reklama",
-        'report_cat_other': "❓ Boshqa sabab",
-        'report_sent': "✅ Shikoyatingiz qabul qilindi. Moderatorlar tez orada ko'rib chiqishadi.",
-        'report_error': "❌ Shikoyat yuborishda xatolik yuz berdi.",
-        'admin_new_report': "❗️ *Yangi shikoyat*\n\n👤 Shikoyatchi: {reporter}\n🎯 Kim haqida: {reported}\n📂 Sabab: {category}\n💬 Izoh: {comment}",
         'welcome': "👋 Здравствуйте, {name}!\n\n💙 *Добро пожаловать в бот знакомств!*\n\nЗдесь вы можете найти новых друзей и общаться.",
         'select_language': "🌍 Пожалуйста, выберите язык:",
         'language_changed': "✅ Язык изменён: {language_name}",
@@ -305,16 +293,6 @@ T = {
         'btn_reject_like': "❌ Қабылдамау",
         'super_like_match_notify': "🎉⭐ *{name}* {sticker}Супер Лайк жіберді және сәйкестік болды!\n\nЕнді сөйлесе аласыз. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Супер Лайк қабылданды! *{name}* де сізді ұнатты!\n\nЕнді сөйлесе аласыз. 💬",
-        'btn_report': "❗️ Шағым",
-        'report_choose_category': "❗️ *Шағым беру*\n\nҚандай себеппен шағымданбақсыз?",
-        'report_cat_porn': "🔞 Порнография",
-        'report_cat_drugs': "💊 Есірткі",
-        'report_cat_violence': "⚔️ Зорлық-зомбылық",
-        'report_cat_fraud': "🎭 Алаяқтық / Жалған анкета",
-        'report_cat_spam': "📢 Спам / Жарнама",
-        'report_cat_other': "❓ Басқа себеп",
-        'report_sent': "✅ Сіздің шағымыңыз қабылданды. Модераторлар жақын арада қарап шығады.",
-        'report_error': "❌ Шағым жіберуде қате кетті.",
     },
     'ky': {
         'welcome': "👋 Саламатсызбы, {name}!\n\n💙 *Таанышу ботуна кош келиңиз!*\n\nБул жерде жаңы досторду таап, баарлаша аласыз.",
@@ -397,16 +375,6 @@ T = {
         'btn_reject_like': "❌ Баш тартуу",
         'super_like_match_notify': "🎉⭐ *{name}* {sticker}Супер Лайк жөнөттү жана шайкештик болду!\n\nЭми баарлаша аласыз. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Супер Лайк кабыл алынды! *{name}* да сизди жактырды!\n\nЭми баарлаша аласыз. 💬",
-        'btn_report': "❗️ Доо",
-        'report_choose_category': "❗️ *Доо берүү*\n\nКайсы себептен доо бергиңиз келет?",
-        'report_cat_porn': "🔞 Порнография",
-        'report_cat_drugs': "💊 Баңги зат",
-        'report_cat_violence': "⚔️ Зомбулук",
-        'report_cat_fraud': "🎭 Алдамчылык / Жалган анкета",
-        'report_cat_spam': "📢 Спам / Жарнама",
-        'report_cat_other': "❓ Башка себеп",
-        'report_sent': "✅ Сиздин доолуу арызыңыз кабыл алынды. Модераторлор жакын арада карап чыгышат.",
-        'report_error': "❌ Доо жөнөтүүдө ката кетти.",
     },
     'kaa': {
         'welcome': "👋 Sálem, {name}!\n\n💙 *Tanısıw botına xosh kelipsiz!*\n\nBul jerde jańa dostlar tabıp, sóylesse alasız.",
@@ -489,16 +457,6 @@ T = {
         'btn_reject_like': "❌ Qabıl almaslik",
         'super_like_match_notify': "🎉⭐ *{name}* {sticker}Super Layk jiberdi hám sáykeslik boldı!\n\nEndi sólese alasız. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Super Layk qabıl alındı! *{name}* de sizdi jaqtırdı!\n\nEndi sólese alasız. 💬",
-        'btn_report': "❗️ Shikayat",
-        'report_choose_category': "❗️ *Shikayat beriw*\n\nQanday sebepten shikayat qilmaqshisiz?",
-        'report_cat_porn': "🔞 Pornografiya",
-        'report_cat_drugs': "💊 Nasha",
-        'report_cat_violence': "⚔️ Zorliq",
-        'report_cat_fraud': "🎭 Aldamshiliq / Jalg'an anketa",
-        'report_cat_spam': "📢 Spam / Reklama",
-        'report_cat_other': "❓ Basqa sebep",
-        'report_sent': "✅ Shikayatıńız qabıl etildi. Moderatorlar jaqında qarap shıǵadı.",
-        'report_error': "❌ Shikayat jiberiwde qátelik júz berdi.",
     },
     'tg': {
         'welcome': "👋 Салом, {name}!\n\n💙 *Ба боти шиносоӣ хуш омадед!*\n\nДар ин ҷо шумо метавонед дӯстони нав пайдо кунед ва гуфтугӯ кунед.",
@@ -581,16 +539,6 @@ T = {
         'btn_reject_like': "❌ Рад кардан",
         'super_like_match_notify': "🎉⭐ *{name}* {sticker}Супер Лайк фиристод ва мувофиқат шуд!\n\nАкнун метавонед гуфтугӯ кунед. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Супер Лайк қабул шуд! *{name}* ҳам шуморо лайк кард!\n\nАкнун метавонед гуфтугӯ кунед. 💬",
-        'btn_report': "❗️ Шикоят",
-        'report_choose_category': "❗️ *Шикоят кардан*\n\nБо кадом сабаб шикоят карданӣ ҳастед?",
-        'report_cat_porn': "🔞 Порнография",
-        'report_cat_drugs': "💊 Маводи мухаддир",
-        'report_cat_violence': "⚔️ Зӯроварӣ",
-        'report_cat_fraud': "🎭 Фиребгарӣ / Анкетаи қалбакӣ",
-        'report_cat_spam': "📢 Спам / Реклама",
-        'report_cat_other': "❓ Сабаби дигар",
-        'report_sent': "✅ Шикояти шумо қабул карда шуд. Модераторон ба зудӣ дида мебароянд.",
-        'report_error': "❌ Хатогӣ ҳангоми фиристодани шикоят рух дод.",
     },
     'en': {
         'welcome': "👋 Hello, {name}!\n\n💙 *Welcome to the Friendship & Dating Bot!*\n\nHere you can find new friends and chat.",
@@ -673,16 +621,6 @@ T = {
         'btn_reject_like': "❌ Decline",
         'super_like_match_notify': "🎉⭐ *{name}* sent a {sticker}Super Like and it's a match!\n\nYou can start chatting now. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Super Like accepted! *{name}* liked you back!\n\nYou can start chatting now. 💬",
-        'btn_report': "❗️ Report",
-        'report_choose_category': "❗️ *Report*\n\nWhat is the reason for your report?",
-        'report_cat_porn': "🔞 Pornography",
-        'report_cat_drugs': "💊 Drugs",
-        'report_cat_violence': "⚔️ Violence",
-        'report_cat_fraud': "🎭 Fraud / Fake profile",
-        'report_cat_spam': "📢 Spam / Advertising",
-        'report_cat_other': "❓ Other reason",
-        'report_sent': "✅ Your report has been received. Moderators will review it shortly.",
-        'report_error': "❌ Error sending the report.",
     },
 }
 
@@ -723,9 +661,6 @@ def build_candidate_keyboard(lang, telegram_id):
         InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"search_message:{telegram_id}")
     )
     builder.row(
-        InlineKeyboardButton(text=t(lang, 'btn_report'), callback_data=f"report_pick:{telegram_id}")
-    )
-    builder.row(
         InlineKeyboardButton(text=t(lang, 'btn_back'), callback_data="show_main_menu")
     )
     return builder.as_markup()
@@ -743,19 +678,6 @@ def build_sticker_picker_keyboard(lang, telegram_id):
     if row:
         builder.row(*row)
     builder.row(InlineKeyboardButton(text=t(lang, 'btn_skip'), callback_data=f"search_super_like_cancel:{telegram_id}"))
-    return builder.as_markup()
-
-
-def build_report_category_keyboard(lang, telegram_id):
-    """Shikoyat sababini tanlash klaviaturasi."""
-    builder = InlineKeyboardBuilder()
-    categories = ['porn', 'drugs', 'violence', 'fraud', 'spam', 'other']
-    for cat in categories:
-        builder.row(InlineKeyboardButton(
-            text=t(lang, f'report_cat_{cat}'),
-            callback_data=f"report_send:{telegram_id}:{cat}"
-        ))
-    builder.row(InlineKeyboardButton(text=t(lang, 'btn_skip'), callback_data=f"report_cancel:{telegram_id}"))
     return builder.as_markup()
 
 
@@ -1038,39 +960,6 @@ search_sessions = {}
 pending_message_targets = {}
 
 
-class BanGuardMiddleware(BaseMiddleware):
-    async def __call__(self, handler, event, data):
-        user_id = None
-        chat_id = None
-        if isinstance(event, types.Message):
-            user_id = event.from_user.id if event.from_user else None
-            chat_id = event.chat.id if event.chat else None
-        elif isinstance(event, types.CallbackQuery):
-            user_id = event.from_user.id if event.from_user else None
-            chat_id = event.message.chat.id if event.message and event.message.chat else None
-
-        if user_id:
-            is_banned, banned_until = await db.is_user_banned(user_id)
-            if is_banned:
-                until_str = banned_until.strftime('%Y-%m-%d %H:%M') if hasattr(banned_until, 'strftime') else str(banned_until)
-                message = f"🚫 Siz qoidabuzarlik tufayli {until_str} gacha cheklangansiz.\n\nBot va Web App ishlatish imkoni yo'q."
-                bot_instance = data.get('bot')
-                if bot_instance and chat_id:
-                    try:
-                        if isinstance(event, types.CallbackQuery):
-                            await event.answer(message, show_alert=True)
-                        else:
-                            await bot_instance.send_message(chat_id, message)
-                    except Exception:
-                        pass
-                return None
-
-        return await handler(event, data)
-
-
-dp.update.outer_middleware(BanGuardMiddleware())
-
-
 def _normalize_base64(photo_base64: str) -> str:
     if photo_base64 and "," in photo_base64 and photo_base64.startswith("data:"):
         return photo_base64.split(",", 1)[1]
@@ -1190,168 +1079,6 @@ async def moderate_image_base64(photo_base64: str):
     except Exception as exc:
         logger.error("Moderation javobini tahlil qilishda xatolik: %s", exc, exc_info=True)
         return False, "moderation_parse_error"
-
-
-REPORT_CATEGORY_PROMPT_LABELS = {
-    'porn': "Pornografiya / jinsiy kontent",
-    'drugs': "Narkotik moddalar targ'iboti",
-    'violence': "Zo'ravonlik / tahdid",
-    'fraud': "Firibgarlik / soxta anketa",
-    'spam': "Spam / reklama",
-    'other': "Boshqa qoidabuzarlik",
-}
-
-
-async def analyze_report_with_ai(category, comment, reported_profile, chat_history):
-    """
-    OpenAI chat completion orqali shikoyatni avtomatik tekshiradi.
-    Shikoyat qilingan foydalanuvchining profili va shikoyatchi bilan bo'lgan
-    chat tarixini (agar bo'lsa) tahlil qilib, haqiqatan qoidabuzarlik bor-yo'qligini aniqlaydi.
-    Inson moderator ishtirok etmaydi - qaror to'liq AI tomonidan qabul qilinadi.
-
-    Qaytaradi: (violation: bool, reason: str)
-    """
-    if not OPENAI_API_KEY:
-        logger.error("OPENAI_API_KEY sozlanmagan - shikoyatni AI tekshira olmaydi")
-        return False, "ai_not_configured"
-
-    profile_lines = []
-    if reported_profile:
-        profile_lines.append(f"Ism: {reported_profile.get('full_name') or '—'}")
-        profile_lines.append(f"Yosh: {reported_profile.get('age') or '—'}")
-        profile_lines.append(f"Shahar: {reported_profile.get('city') or '—'}")
-        profile_lines.append(f"Men haqimda: {reported_profile.get('about') or '—'}")
-        goals = reported_profile.get('goals') or []
-        profile_lines.append(f"Maqsad: {', '.join(goals) if goals else '—'}")
-    profile_text = "\n".join(profile_lines) if profile_lines else "Profil topilmadi."
-
-    if chat_history:
-        chat_lines = []
-        reported_tg_id = reported_profile.get('telegram_id') if reported_profile else None
-        for m in chat_history:
-            who = "Shikoyat qilingan" if m['from_user'] == reported_tg_id else "Shikoyatchi"
-            chat_lines.append(f"{who}: {m['message']}")
-        chat_text = "\n".join(chat_lines)
-    else:
-        chat_text = "Ular o'rtasida chat tarixi topilmadi."
-
-    category_label = REPORT_CATEGORY_PROMPT_LABELS.get(category, category)
-
-    system_prompt = (
-        "Sen tanishuv ilovasida shikoyatlarni avtomatik ko'rib chiqadigan moderatorsan. "
-        "Senga shikoyat sababi, shikoyat qilingan foydalanuvchining profil ma'lumotlari va "
-        "ikki foydalanuvchi orasidagi chat yozishmalari beriladi. "
-        "Shu ma'lumotlar asosida haqiqatan ham qoidabuzarlik (pornografiya, narkotik, zo'ravonlik, "
-        "firibgarlik/soxta anketa, spam yoki boshqa zararli xatti-harakat) bor-yo'qligini aniqla. "
-        "Agar dalillar yetarli bo'lmasa yoki shikoyat asossiz bo'lsa, qoidabuzarlik yo'q deb hisobla. "
-        "Faqat quyidagi JSON formatida javob ber, boshqa hech narsa yozma: "
-        '{"violation": true yoki false, "reason": "qisqa o\'zbekcha izoh"}'
-    )
-    user_prompt = (
-        f"Shikoyat sababi: {category_label}\n\n"
-        f"Shikoyat qilingan foydalanuvchi profili:\n{profile_text}\n\n"
-        f"Chat yozishmalari:\n{chat_text}"
-    )
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "gpt-4o-mini",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "temperature": 0,
-                    "response_format": {"type": "json_object"},
-                },
-                timeout=aiohttp.ClientTimeout(total=20),
-            ) as resp:
-                if resp.status != 200:
-                    body = await resp.text()
-                    logger.error("OpenAI report tahlili xatolik: %s %s", resp.status, body)
-                    return False, "ai_api_error"
-                result = await resp.json()
-    except Exception as exc:
-        logger.error("OpenAI report so'rovida xatolik: %s", exc, exc_info=True)
-        return False, "ai_api_error"
-
-    try:
-        content = result["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
-        violation = bool(parsed.get("violation", False))
-        reason = str(parsed.get("reason", ""))[:500]
-        return violation, reason
-    except Exception as exc:
-        logger.error("AI report javobini tahlil qilishda xatolik: %s", exc, exc_info=True)
-        return False, "ai_parse_error"
-
-
-def _has_strong_report_evidence(category, comment):
-    category_key = (category or '').strip().lower()
-    comment_text = (comment or '').strip().lower()
-    if not comment_text:
-        return False
-
-    keywords = []
-    if category_key == 'porn':
-        keywords = ['porn', 'porno', 'sex', 'seks', 'nude', 'naked', 'explicit', 'erotic', 'hardcore', 'xxx']
-    elif category_key == 'drugs':
-        keywords = ['drug', 'nark', 'narkotik', 'weed', 'meth', 'cocaine', 'mdma', 'heroin']
-    elif category_key == 'violence':
-        keywords = ['violence', 'threat', 'kill', 'attack', 'hit', 'abuse', 'weapon']
-    elif category_key == 'fraud':
-        keywords = ['fake', 'fraud', 'scam', 'cheat', 'soxta', 'firib', 'money', 'cash', 'card']
-    elif category_key == 'spam':
-        keywords = ['spam', 'reklama', 'promo', 'link', 'bot', 'sell', 'buy', 'cash', 'money', 'telegram']
-    else:
-        keywords = ['porn', 'spam', 'fake', 'fraud', 'violence', 'drug', 'nude', 'sex']
-
-    return any(term in comment_text for term in keywords)
-
-
-async def process_report_with_ai(reporter_id, reported_id, category, comment):
-    """
-    Shikoyatni AI orqali to'liq avtomatik tekshiradi: profil va chat tarixini yuklaydi,
-    AI tahlilini chaqiradi, qoidabuzarlik tasdiqlansa foydalanuvchini avtomatik spamga (banga) tushiradi.
-    Inson moderator ishtirok etmaydi.
-
-    Kutilmagan xatolik yuz bersa ham 'violation, reason' natijasi qaytariladi -
-    shu bilan shikoyat holati (status) doim yangilanib, 'new' holatida abadiy qolib ketmasligi ta'minlanadi.
-
-    Qaytaradi: dict { violation, reason, spam_count, banned_until }
-    """
-    try:
-        reported_profile = await db.get_user(reported_id)
-        chat_history = await db.get_chat_history_between(reporter_id, reported_id)
-        violation, reason = await analyze_report_with_ai(category, comment, reported_profile, chat_history)
-    except Exception as exc:
-        logger.error("process_report_with_ai kutilmagan xatolik: %s", exc, exc_info=True)
-        violation, reason = False, "internal_error"
-
-    if not violation and _has_strong_report_evidence(category, comment):
-        violation = True
-        reason = reason or "Shikoyatda aniq qoidabuzarlik dalili bor"
-
-    spam_count = None
-    banned_until = None
-    if violation:
-        try:
-            spam_count, banned_until = await db.apply_spam_ban(reported_id)
-        except Exception as exc:
-            logger.error("apply_spam_ban xatolik: %s", exc, exc_info=True)
-
-    return {
-        'violation': violation,
-        'reason': reason,
-        'spam_count': spam_count,
-        'banned_until': banned_until,
-    }
 
 
 def get_photo_input(user):
@@ -1672,9 +1399,6 @@ async def send_candidate_card(message, user, lang='uz'):
     builder.row(
         InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"write_{user['telegram_id']}")
     )
-    builder.row(
-        InlineKeyboardButton(text=t(lang, 'btn_report'), callback_data=f"report_pick:{user['telegram_id']}")
-    )
 
     if photo:
         await message.answer_photo(
@@ -1782,17 +1506,6 @@ async def start_handler(message: types.Message):
     # Foydalanuvchi tilini tekshirish
     lang = await get_user_lang(telegram_id)
     user = await db.get_user(telegram_id)
-
-    # /start bosilgan zahoti foydalanuvchi spamda (banlangan) bo'lsa,
-    # buni darhol xabar qilamiz - real-time banned_until vaqti bilan birga.
-    is_banned, banned_until = await db.is_user_banned(telegram_id)
-    if is_banned:
-        until_str = banned_until.strftime('%Y-%m-%d %H:%M') if hasattr(banned_until, 'strftime') else str(banned_until)
-        await message.answer(
-            f"❌ Siz qoidabuzarlik tufayli spamga tushirilgansiz.\n"
-            f"Cheklov muddati: {until_str} gacha."
-        )
-        return
 
 # Agar til tanlanmagan bo'lsa (faqat yangi foydalanuvchi)
     if not user or not user.get('language'):
@@ -1950,12 +1663,6 @@ async def start_search(message_or_callback, lang='uz'):
     else:
         send_func = message_or_callback.answer
         user_id = message_or_callback.from_user.id
-
-    is_banned, banned_until = await db.is_user_banned(user_id)
-    if is_banned:
-        until_str = banned_until.strftime('%Y-%m-%d %H:%M') if hasattr(banned_until, 'strftime') else str(banned_until)
-        await send_func(f"🚫 Siz qoidabuzarlik tufayli {until_str} gacha cheklangansiz. Qidirish va xabar yozish imkoniyatingiz vaqtincha to'xtatilgan.")
-        return
 
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text=t(lang, 'btn_male'), callback_data="search_gender:erkak"))
@@ -2613,122 +2320,7 @@ async def write_callback(callback: types.CallbackQuery):
         await callback.answer(t(lang, 'need_like_first'), show_alert=True)
 
 
-# ========== SHIKOYAT (REPORT) ==========
-REPORT_CATEGORY_LABELS_UZ = {
-    'porn': "🔞 Pornografiya",
-    'drugs': "💊 Narkotik",
-    'violence': "⚔️ Zo'ravonlik",
-    'fraud': "🎭 Firibgarlik / Soxta anketa",
-    'spam': "📢 Spam / Reklama",
-    'other': "❓ Boshqa sabab",
-}
-
-
-async def notify_admins_about_report(reporter, reported_user, category, comment=None, ai_result=None):
-    """Yangi shikoyat va AI tomonidan qabul qilingan qaror haqida admin/guruhga xabar yuboradi."""
-    target_chat = ADMIN_CHAT_ID or GROUP_CHAT_ID
-    if not target_chat:
-        return
-    reporter_label = f"@{reporter.get('username')}" if reporter and reporter.get('username') else f"ID: {reporter.get('telegram_id') if reporter else '—'}"
-    reported_label = f"@{reported_user.get('username')}" if reported_user and reported_user.get('username') else f"ID: {reported_user.get('telegram_id') if reported_user else '—'}"
-    category_label = REPORT_CATEGORY_LABELS_UZ.get(category, category)
-    text = t('uz', 'admin_new_report',
-             reporter=reporter_label,
-             reported=reported_label,
-             category=category_label,
-             comment=comment or '—')
-
-    if ai_result is not None:
-        if ai_result.get('violation'):
-            until = ai_result.get('banned_until')
-            until_str = until.strftime('%Y-%m-%d %H:%M') if hasattr(until, 'strftime') else str(until)
-            text += (
-                f"\n\n🤖 *AI qarori:* Qoidabuzarlik tasdiqlandi.\n"
-                f"Sabab: {ai_result.get('reason') or '—'}\n"
-                f"Spam bosqichi: {ai_result.get('spam_count')}\n"
-                f"Spam muddati: {until_str} gacha"
-            )
-        else:
-            text += (
-                f"\n\n🤖 *AI qarori:* Qoidabuzarlik topilmadi.\n"
-                f"Izoh: {ai_result.get('reason') or '—'}"
-            )
-
-    try:
-        await bot.send_message(target_chat, text, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Admin report notify xatolik: {e}")
-
-
-@dp.callback_query(F.data.startswith("report_pick:"))
-async def report_pick_callback(callback: types.CallbackQuery):
-    lang = await get_user_lang(callback.from_user.id)
-    reported_id = int(callback.data.split(":")[1])
-    await callback.message.answer(
-        t(lang, 'report_choose_category'),
-        parse_mode="Markdown",
-        reply_markup=build_report_category_keyboard(lang, reported_id)
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data.startswith("report_send:"))
-async def report_send_callback(callback: types.CallbackQuery):
-    lang = await get_user_lang(callback.from_user.id)
-    _, reported_id_str, category = callback.data.split(":")
-    reported_id = int(reported_id_str)
-    try:
-        report_row = await db.create_report(callback.from_user.id, reported_id, category)
-        reporter = await db.get_user(callback.from_user.id)
-        reported_user = await db.get_user(reported_id)
-
-        # AI orqali avtomatik tekshiruv - inson moderator ishtirok etmaydi
-        ai_result = await process_report_with_ai(callback.from_user.id, reported_id, category, None)
-        if report_row:
-            await db.update_report_ai_result(
-                report_row['id'], ai_result['violation'], ai_result['reason'],
-                ai_result.get('spam_count'), ai_result.get('banned_until')
-            )
-
-        await notify_admins_about_report(reporter, reported_user, category, None, ai_result)
-        await callback.answer(t(lang, 'report_sent'), show_alert=True)
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
-    except Exception as e:
-        logger.error(f"Report send xatolik: {e}")
-        await callback.answer(t(lang, 'report_error'), show_alert=True)
-
-
-@dp.callback_query(F.data.startswith("report_cancel:"))
-async def report_cancel_callback(callback: types.CallbackQuery):
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-    await callback.answer()
-
-
 # ========== HTTP API ==========
-async def get_ban_error_response(telegram_id):
-    """
-    Foydalanuvchi spamda (banlangan) bo'lsa, mos xato javobini qaytaradi.
-    Spamdagi foydalanuvchi: hech kimni qidira olmaydi, hech kimga yoza olmaydi,
-    va uning profili boshqalarga ko'rinmaydi.
-    """
-    is_banned, banned_until = await db.is_user_banned(telegram_id)
-    if not is_banned:
-        return None
-    until_str = banned_until.strftime('%Y-%m-%d %H:%M') if hasattr(banned_until, 'strftime') else str(banned_until)
-    return web.json_response({
-        'success': False,
-        'error': 'banned',
-        'message': f"Siz qoidabuzarlik tufayli {until_str} gacha cheklangansiz.",
-        'banned_until': until_str,
-    }, status=403)
-
-
 def serialize_value(value):
     if isinstance(value, (list, tuple)):
         return [serialize_value(v) for v in value]
@@ -2787,11 +2379,6 @@ async def search_api(request):
         if telegram_id is None:
             telegram_id = 0
 
-        if telegram_id:
-            ban_response = await get_ban_error_response(int(telegram_id))
-            if ban_response:
-                return ban_response
-
         # Qidirayotgan foydalanuvchining ma'lumotlarini olish (maqsadlar va burj uchun)
         searcher = None
         if telegram_id and 'searcher_goals' not in filters:
@@ -2831,11 +2418,6 @@ async def search_count_api(request):
             telegram_id = 0
 
         if telegram_id:
-            ban_response = await get_ban_error_response(int(telegram_id))
-            if ban_response:
-                return ban_response
-
-        if telegram_id:
             try:
                 searcher = await db.get_user(int(telegram_id))
                 if searcher:
@@ -2859,13 +2441,6 @@ async def profile_api(request):
         if telegram_id is None:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
 
-        # Web App ochilgan zahoti (start bosilganda) foydalanuvchi spamda
-        # (banlangan) bo'lsa, buni shu yerda darhol qaytaramiz - real-time
-        # banned_until vaqti bilan birga.
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
-
         user = await db.get_user(int(telegram_id))
         if user:
             return web.json_response({'success': True, 'user': serialize_user(user)})
@@ -2885,9 +2460,6 @@ async def save_profile_api(request):
         if not profile:
             return web.json_response({'success': False, 'error': 'profile required'}, status=400)
 
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
 
         profile['telegram_id'] = int(telegram_id)
         profile['username'] = profile.get('username')
@@ -2969,9 +2541,6 @@ async def likes_received_api(request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
         likes = await db.get_pending_likes(int(telegram_id))
         return web.json_response({'success': True, 'likes': [serialize_user(u) for u in likes]})
     except Exception as e:
@@ -2987,9 +2556,6 @@ async def accept_like_api(request):
         if not telegram_id or not from_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
 
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
 
         match_id = await db.accept_like(int(telegram_id), int(from_user))
         if match_id:
@@ -3026,9 +2592,6 @@ async def reject_like_api(request):
         if not telegram_id or not from_user:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
 
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
 
         rejected = await db.reject_like(int(telegram_id), int(from_user))
         if rejected:
@@ -3057,9 +2620,6 @@ async def matches_api(request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
         matches = await db.get_matches(int(telegram_id))
         return web.json_response({'success': True, 'matches': [serialize_user(m) for m in matches]})
     except Exception as e:
@@ -3074,10 +2634,6 @@ async def chat_messages_api(request):
         telegram_id = data.get('telegram_id')
         if not match_id:
             return web.json_response({'success': False, 'error': 'match_id required'}, status=400)
-        if telegram_id:
-            ban_response = await get_ban_error_response(int(telegram_id))
-            if ban_response:
-                return ban_response
         messages = await db.get_chat_messages(int(match_id))
         return web.json_response({'success': True, 'messages': [serialize_user(m) for m in messages]})
     except Exception as e:
@@ -3094,9 +2650,6 @@ async def send_chat_api(request):
         if not match_id or not sender_id or not message:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
 
-        ban_response = await get_ban_error_response(int(sender_id))
-        if ban_response:
-            return ban_response
 
         can_msg = await db.check_and_increment_limit(int(sender_id), 'messages')
         if not can_msg:
@@ -3120,9 +2673,6 @@ async def can_write_api(request):
         to_user = data.get('to_user')
         if from_user is None or to_user is None:
             return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
-        ban_response = await get_ban_error_response(int(from_user))
-        if ban_response:
-            return ban_response
         can = await db.can_write(int(from_user), int(to_user))
         return web.json_response({'success': True, 'can_write': can})
     except Exception as e:
@@ -3142,9 +2692,6 @@ async def initiate_chat_api(request):
         if from_user <= 0 or to_user <= 0:
             return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
 
-        ban_response = await get_ban_error_response(from_user)
-        if ban_response:
-            return ban_response
 
         can = await db.can_write(from_user, to_user)
         if not can:
@@ -3173,9 +2720,6 @@ async def send_pending_message_api(request):
         if not message:
             return web.json_response({'success': False, 'error': 'Empty message'}, status=400)
 
-        ban_response = await get_ban_error_response(from_user)
-        if ban_response:
-            return ban_response
 
         from_user_data = await db.get_user(from_user)
         to_user_data = await db.get_user(to_user)
@@ -3214,9 +2758,6 @@ async def like_send_api(request):
         if from_user <= 0 or to_user <= 0:
             return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
 
-        ban_response = await get_ban_error_response(from_user)
-        if ban_response:
-            return ban_response
 
         super_like = bool(data.get('super_like', False))
         sticker = data.get('sticker', '')
@@ -3329,9 +2870,6 @@ async def user_language_api(request):
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
 
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
 
         # Agar language berilgan bo'lsa, o'zgartirish
         new_lang = data.get('language')
@@ -3359,9 +2897,6 @@ async def limit_status_api(request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
         status = await db.get_limit_status(int(telegram_id))
         return web.json_response({'success': True, 'limits': status})
     except Exception as e:
@@ -3376,9 +2911,6 @@ async def referral_status_api(request):
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
 
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
 
         status = await db.get_referral_status(int(telegram_id))
         invite_count = await db.get_group_invite_count(int(telegram_id))
@@ -3486,9 +3018,6 @@ async def verify_upload_api(request: web.Request):
         if not selfie_b64 or len(selfie_b64) < 100:
             return web.json_response({'success': False, 'error': 'Selfie rasm kerak'}, status=400)
 
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
 
         # Rasm o'lchamini tekshirish (base64 ~ 1.33x asl o'lcham)
         # Max 8MB asl rasm ≈ ~11MB base64
@@ -3536,9 +3065,6 @@ async def verify_status_api(request: web.Request):
         telegram_id = data.get('telegram_id')
         if not telegram_id:
             return web.json_response({'success': False, 'error': 'telegram_id kerak'}, status=400)
-        ban_response = await get_ban_error_response(int(telegram_id))
-        if ban_response:
-            return ban_response
         status = await db.get_verification_status(int(telegram_id))
         verified_at = status.get('verified_at')
         if verified_at is not None and hasattr(verified_at, 'isoformat'):
@@ -3572,142 +3098,6 @@ async def moderate_photo_api(request: web.Request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-VALID_REPORT_CATEGORIES = {'porn', 'drugs', 'violence', 'fraud', 'spam', 'other'}
-
-# initData necha soniyagacha "yangi" deb hisoblanadi (Telegram tavsiyasi: 24 soat)
-INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
-
-
-def validate_telegram_init_data(init_data: str, max_age_seconds: int = INIT_DATA_MAX_AGE_SECONDS):
-    """
-    Telegram WebApp initData'ni HMAC orqali tasdiqlaydi (rasmiy Telegram algoritmi).
-    https://core.telegram.org/bots/webapps#validating-data-received-via-the-web-app
-
-    Muvaffaqiyatli bo'lsa haqiqiy Telegram foydalanuvchisi ma'lumotini (dict) qaytaradi,
-    aks holda None qaytaradi. Bu client tomonidan yuborilgan xom reporter_id'ga
-    ishonmasdan, kim haqiqatan ham so'rov yuborayotganini serverda tasdiqlash uchun kerak.
-    """
-    if not init_data or not isinstance(init_data, str):
-        return None
-    try:
-        parsed_pairs = parse_qsl(init_data, strict_parsing=True, keep_blank_values=True)
-    except ValueError:
-        return None
-
-    data = dict(parsed_pairs)
-    received_hash = data.pop('hash', None)
-    if not received_hash:
-        return None
-
-    data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
-    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-    computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-
-    if not hmac.compare_digest(computed_hash, received_hash):
-        logger.warning("initData HMAC mos kelmadi - soxta/yasama so'rov bo'lishi mumkin")
-        return None
-
-    auth_date = data.get('auth_date')
-    if auth_date:
-        try:
-            age = datetime.now(timezone.utc).timestamp() - int(auth_date)
-            if age > max_age_seconds or age < -60:
-                logger.warning("initData muddati o'tgan (auth_date juda eski)")
-                return None
-        except (TypeError, ValueError):
-            return None
-
-    user_raw = data.get('user')
-    if not user_raw:
-        return None
-    try:
-        user = json.loads(user_raw)
-    except (TypeError, ValueError):
-        return None
-
-    if not user.get('id'):
-        return None
-
-    return user
-
-
-async def report_api(request: web.Request):
-    """
-    Web App'dan shikoyat (report) yuborish.
-    Body: { init_data, reported_id, category, comment? }
-    Shikoyat tushgan zahoti AI (OpenAI) avtomatik tekshiradi - inson moderator ishtirok etmaydi.
-    Qoidabuzarlik tasdiqlansa, foydalanuvchi avtomatik spamga (banga) tushadi:
-    1-marta -> 1 kun, 2-marta -> 1 hafta, 3-marta -> 2 hafta, 4-marta -> 1 oy, 5-marta va undan ko'p -> 1 yil.
-
-    MUHIM: reporter_id endi client'dan (JSON body'dan) ishonib olinmaydi - buni
-    istalgan odam soxtalashtirib, o'zini boshqa foydalanuvchi qilib ko'rsatib,
-    haqiqiy jabrlanuvchini spamga tushirib qo'yishi mumkin edi. Shuning uchun
-    reporter_id endi faqat Telegram WebApp initData'ning HMAC imzosi orqali
-    serverda tasdiqlangandan keyin olinadi.
-    """
-    try:
-        data = await request.json()
-
-        init_data = data.get('init_data') or request.headers.get('X-Telegram-Init-Data')
-        verified_user = validate_telegram_init_data(init_data)
-        if not verified_user:
-            logger.warning("report_api: initData tasdiqlanmadi, so'rov rad etildi")
-            return web.json_response(
-                {'success': False, 'error': 'Telegram autentifikatsiyasi tasdiqlanmadi'},
-                status=401,
-            )
-        reporter_id = int(verified_user['id'])
-
-        ban_response = await get_ban_error_response(reporter_id)
-        if ban_response:
-            return ban_response
-
-        try:
-            reported_id = int(data.get('reported_id'))
-        except (TypeError, ValueError):
-            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
-
-        category = (data.get('category') or 'other').strip().lower()
-        if category not in VALID_REPORT_CATEGORIES:
-            category = 'other'
-        comment = (data.get('comment') or '').strip()[:500] or None
-
-        if reporter_id <= 0 or reported_id <= 0 or reporter_id == reported_id:
-            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
-
-        report_row = await db.create_report(reporter_id, reported_id, category, comment)
-
-        reporter = await db.get_user(reporter_id)
-        reported_user = await db.get_user(reported_id)
-
-        # AI orqali avtomatik tekshiruv - inson moderator ishtirok etmaydi
-        ai_result = await process_report_with_ai(reporter_id, reported_id, category, comment)
-        if report_row:
-            await db.update_report_ai_result(
-                report_row['id'], ai_result['violation'], ai_result['reason'],
-                ai_result.get('spam_count'), ai_result.get('banned_until')
-            )
-
-        await notify_admins_about_report(reporter, reported_user, category, comment, ai_result)
-
-        if ai_result.get('violation') and ai_result.get('banned_until'):
-            until_str = ai_result['banned_until'].strftime('%Y-%m-%d %H:%M') if hasattr(ai_result['banned_until'], 'strftime') else str(ai_result['banned_until'])
-            return web.json_response({
-                'success': True,
-                'banned': True,
-                'violation': True,
-                'reason': ai_result.get('reason'),
-                'spam_count': ai_result.get('spam_count'),
-                'banned_until': until_str,
-                'message': f"Siz qoidabuzarlik tufayli {until_str} gacha cheklangansiz."
-            })
-
-        return web.json_response({'success': True, 'banned': False})
-    except Exception as e:
-        logger.error(f"REPORT API xatolik: {e}", exc_info=True)
-        return web.json_response({'success': False, 'error': str(e)}, status=500)
-
-
 async def block_api(request: web.Request):
     """Web App'dan foydalanuvchini bloklash."""
     try:
@@ -3717,9 +3107,6 @@ async def block_api(request: web.Request):
             blocked = int(data.get('blocked'))
         except (TypeError, ValueError):
             return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
-        ban_response = await get_ban_error_response(blocker)
-        if ban_response:
-            return ban_response
         await db.block_user(blocker, blocked)
         return web.json_response({'success': True})
     except Exception as e:
@@ -3755,9 +3142,6 @@ async def anon_status_api(request):
     try:
         data = await request.json()
         telegram_id = int(data.get('telegram_id'))
-        ban_response = await get_ban_error_response(telegram_id)
-        if ban_response:
-            return ban_response
         row = await db.get_my_anon_match(telegram_id)
         return web.json_response({'success': True, 'anon': _anon_public_status(row, telegram_id)})
     except Exception as e:
@@ -3773,9 +3157,6 @@ async def anon_respond_api(request):
         anon_match_id = int(data.get('anon_match_id'))
         accept = bool(data.get('accept'))
 
-        ban_response = await get_ban_error_response(telegram_id)
-        if ban_response:
-            return ban_response
 
         result = await db.respond_anon_match(telegram_id, anon_match_id, accept)
         if not result:
@@ -3803,9 +3184,6 @@ async def anon_messages_api(request):
         data = await request.json()
         telegram_id = int(data.get('telegram_id'))
         anon_match_id = int(data.get('anon_match_id'))
-        ban_response = await get_ban_error_response(telegram_id)
-        if ban_response:
-            return ban_response
         row = await db.get_anon_match(anon_match_id)
         if not row or telegram_id not in (row['user_a'], row['user_b']):
             return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
@@ -3825,9 +3203,6 @@ async def anon_send_api(request):
         if not message:
             return web.json_response({'success': False, 'error': 'Bo\'sh xabar'}, status=400)
 
-        ban_response = await get_ban_error_response(telegram_id)
-        if ban_response:
-            return ban_response
 
         can_msg = await db.check_and_increment_limit(telegram_id, 'messages')
         if not can_msg:
@@ -3851,9 +3226,6 @@ async def anon_reveal_api(request):
         telegram_id = int(data.get('telegram_id'))
         anon_match_id = int(data.get('anon_match_id'))
 
-        ban_response = await get_ban_error_response(telegram_id)
-        if ban_response:
-            return ban_response
 
         result = await db.request_anon_reveal(telegram_id, anon_match_id)
         if not result:
@@ -3881,9 +3253,6 @@ async def anon_disconnect_api(request):
         telegram_id = int(data.get('telegram_id'))
         anon_match_id = int(data.get('anon_match_id'))
 
-        ban_response = await get_ban_error_response(telegram_id)
-        if ban_response:
-            return ban_response
 
         result = await db.disconnect_anon_match(telegram_id, anon_match_id)
         if not result:
@@ -3984,7 +3353,6 @@ async def main():
     app.router.add_post('/api/moderate_photo', moderate_photo_api)
 
     # Shikoyat va blok
-    app.router.add_post('/api/report', report_api)
     app.router.add_post('/api/block', block_api)
 
     # Tungi anonim chat
