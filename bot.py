@@ -3378,24 +3378,26 @@ async def admin_anon_run_match_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+ANON_MATCH_INTERVAL_SECONDS = 300  # har 5 daqiqada yangi mos foydalanuvchilarni juftlaydi
+
+
 async def anon_match_scheduler():
-    """Har kuni Toshkent vaqti bilan bir marta, server ishga tushganidan keyin
-    birinchi imkoniyatda anonim chat uchun juftlarni yaratadi."""
-    logger.info("Anonim tungi chat scheduler ishga tushdi")
+    """Anonim chat uchun juftlarni kuniga bir marta emas, muntazam ravishda
+    (har ANON_MATCH_INTERVAL_SECONDS soniyada) yaratadi — shunday qilib
+    foydalanuvchilar kun/tunning istalgan vaqtida anonim suhbatdosh topa oladi,
+    faqat kechqurungi bitta oynaga bog'liq bo'lmaydi."""
+    logger.info("Anonim chat scheduler ishga tushdi (istalgan vaqt rejimi)")
     while True:
         try:
-            now = datetime.now(TASHKENT_TZ)
-            today = now.date()
-            already_ran = await db.has_anon_run_today(today)
-            if not already_ran:
-                await db.mark_anon_run(today)
-                pairs = await db.create_daily_anon_matches(today)
+            today = datetime.now(TASHKENT_TZ).date()
+            pairs = await db.create_daily_anon_matches(today)
+            if pairs:
                 logger.info(f"Anonim chat: {len(pairs)} ta juftlik yaratildi ({today})")
                 for user_a, user_b, _anon_id in pairs:
                     await _notify_anon_pair(user_a, user_b)
         except Exception as e:
             logger.error(f"Anon match scheduler xatolik: {e}", exc_info=True)
-        await asyncio.sleep(60)
+        await asyncio.sleep(ANON_MATCH_INTERVAL_SECONDS)
 
 
 async def main():
