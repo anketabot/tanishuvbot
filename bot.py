@@ -1009,10 +1009,14 @@ def watermark_image_base64(photo_base64: str, watermark_text: str) -> str:
 
         buf = io.BytesIO()
         watermarked.save(buf, format="JPEG", quality=88)
-        return base64.b64encode(buf.getvalue()).decode("utf-8")
+        encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{encoded}"
     except Exception as exc:
         logger.error("Watermark qo'yishda xatolik: %s", exc, exc_info=True)
         # Watermark qo'yib bo'lmasa ham, original rasmni saqlashda davom etamiz
+        # (prefiks yo'q bo'lsa qo'shib qo'yamiz, bo'lmasa <img> ishlamaydi)
+        if photo_base64 and not photo_base64.startswith("data:"):
+            return f"data:image/jpeg;base64,{_normalize_base64(photo_base64)}"
         return photo_base64
 
 
@@ -2333,6 +2337,12 @@ def serialize_user(user):
     clean_user = {}
     for key, value in user.items():
         clean_user[key] = serialize_value(value)
+    # Eski yozuvlarda photo_base64 "data:image/...;base64," prefiksisiz
+    # saqlangan bo'lishi mumkin (watermark bug tufayli) - bunday hollarda
+    # <img src="..."> ishlamaydi, shuning uchun bu yerda tuzatib qo'yamiz.
+    photo_b64 = clean_user.get('photo_base64')
+    if photo_b64 and isinstance(photo_b64, str) and not photo_b64.startswith('data:'):
+        clean_user['photo_base64'] = f"data:image/jpeg;base64,{photo_b64}"
     return clean_user
 
 
@@ -2981,10 +2991,13 @@ async def leaderboard_api(request):
             await db.release_db(conn)
 
         def row_to_dict(r):
+            photo_b64 = r['photo_base64']
+            if photo_b64 and not photo_b64.startswith('data:'):
+                photo_b64 = f"data:image/jpeg;base64,{photo_b64}"
             return {
                 'telegram_id': r['telegram_id'],
                 'full_name': r['full_name'] or 'Anonim',
-                'photo_base64': r['photo_base64'],
+                'photo_base64': photo_b64,
                 'count': r['count'],
             }
 
