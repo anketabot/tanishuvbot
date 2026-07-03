@@ -2498,12 +2498,13 @@ async def save_profile_api(request):
                     'reason': reason,
                 }, status=400)
 
-        # === Watermark: rasm AI filterdan o'tgach, ustiga foydalanuvchi
-        # belgisini "kuydiramiz" - skrinshot olinsa ham kim ekanligi bilinadi ===
+        # === Watermark o'chirildi: foydalanuvchilar so'roviga ko'ra rasmga
+        # endi diagonal ID/username yozuvi "kuydirilmaydi". Faqat data-URI
+        # prefiksi borligini ta'minlaymiz (aks holda <img> ishlamaydi).
         if photo_base64:
-            username = profile.get('username')
-            wm_label = f"@{username}" if username else f"ID:{telegram_id}"
-            profile['photo_base64'] = watermark_image_base64(photo_base64, wm_label)
+            if not photo_base64.startswith("data:"):
+                photo_base64 = f"data:image/jpeg;base64,{_normalize_base64(photo_base64)}"
+            profile['photo_base64'] = photo_base64
 
         success = await db.save_user(int(telegram_id), profile)
         return web.json_response({'success': success})
