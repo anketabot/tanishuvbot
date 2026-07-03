@@ -131,6 +131,8 @@ T = {
         'super_like_match_notify': "🎉⭐ *{name}* {sticker}Super Like yubordi va match bo'ldi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
         'super_like_match_self': "🎉⭐ {sticker}Super Like qabul qilindi! *{name}* sizni ham yoqtirdi!\n\nEndi muloqot boshlashingiz mumkin. 💬",
         'super_like_sticker': "⭐ Super Like uchun stiker tanlang:",
+    },
+    'ru': {
         'welcome': "👋 Здравствуйте, {name}!\n\n💙 *Добро пожаловать в бот знакомств!*\n\nЗдесь вы можете найти новых друзей и общаться.",
         'select_language': "🌍 Пожалуйста, выберите язык:",
         'language_changed': "✅ Язык изменён: {language_name}",
