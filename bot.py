@@ -2720,7 +2720,11 @@ async def initiate_chat_api(request):
 
 
 async def send_pending_message_api(request):
-    """Match bo'lmasa ham xabarni qabul qiluvchiga yuboradi (Telegram bot orqali)"""
+    """Qidiruvdan (match bo'lmasa ham) xabar yuborilganda - darhol haqiqiy
+    chat (match) ochiladi va xabar chat_messages ga yoziladi, shu bilan
+    birga qabul qiluvchiga Telegram orqali bildirishnoma yuboriladi.
+    Like bosish yoki uni qabul qilish shart emas - xabar ikkala tomon
+    uchun ham Web App'ning Chat bo'limida darhol ko'rinadi."""
     try:
         data = await request.json()
         try:
@@ -2740,10 +2744,32 @@ async def send_pending_message_api(request):
         if not from_user_data or not to_user_data:
             return web.json_response({'success': False, 'error': 'User not found'}, status=404)
 
-        # Xabarni bazaga saqlaymiz - shunda match bo'lgach avtomatik
-        # chatga ko'chadi (avval bu qadam yo'q edi, shuning uchun xabar
-        # hech qayerga saqlanmay yo'qolib qolardi).
-        await db.save_pending_message(from_user, to_user, message)
+        # Kunlik xabar limitini tekshiramiz (ayollar uchun limit yo'q,
+        # erkaklar uchun kuniga 10 ta xabar).
+        can_msg = await db.check_and_increment_limit(from_user, 'messages')
+        if not can_msg:
+            return web.json_response({
+                'success': False,
+                'error': 'limit_exceeded',
+                'message': 'Kunlik xabar yuborish limitingiz tugadi!'
+            }, status=403)
+
+        # Match bo'lmasa ham darhol chat ochamiz - ikkala foydalanuvchi
+        # uchun ham suhbat Chat bo'limida shu zahoti paydo bo'ladi.
+        match_id = await db.create_match(from_user, to_user)
+        if not match_id:
+            return web.json_response({'success': False, 'error': 'Chat ochilmadi'}, status=500)
+
+        # Bu ikki foydalanuvchi o'rtasida avvalroq saqlanib qolgan pending
+        # xabarlar bo'lsa, ularni ham shu chatga ko'chiramiz.
+        try:
+            await db.get_pending_messages_for_match(match_id)
+        except Exception as e:
+            logger.error(f"Pending migrate error: {e}")
+
+        sent = await db.send_chat_message(match_id, from_user, message)
+        if not sent:
+            return web.json_response({'success': False, 'error': 'Xabar yuborilmadi'}, status=500)
 
         try:
             to_lang = await get_user_lang(to_user)
@@ -2756,9 +2782,9 @@ async def send_pending_message_api(request):
             await bot.send_message(int(to_user), notify_msg, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Pending message send error: {e}")
-            # Telegram xabarnomasi ketmasa ham, xabar bazada saqlanib qoldi
+            # Telegram xabarnomasi ketmasa ham, xabar chatda saqlanib qoldi
 
-        return web.json_response({'success': True})
+        return web.json_response({'success': True, 'match_id': match_id})
 
     except Exception as e:
         logger.error(f"SEND PENDING MESSAGE API xatolik: {e}", exc_info=True)
