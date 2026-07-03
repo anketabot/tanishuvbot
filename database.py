@@ -1226,6 +1226,15 @@ async def accept_like(telegram_id, from_user):
         if not like:
             return None
 
+        # Qabul qilingan like bo'yicha o'z tomonimdan ham "like" yozuvini
+        # qo'shamiz - shu orqali get_pending_likes() dagi mutual tekshiruvi
+        # (NOT EXISTS) ushbu bildirishnomani ro'yxatdan olib tashlaydi.
+        await conn.execute(
+            "INSERT INTO likes (from_user, to_user, is_super) VALUES ($1, $2, FALSE) "
+            "ON CONFLICT (from_user, to_user) DO NOTHING",
+            telegram_id, from_user
+        )
+
         u1, u2 = min(from_user, telegram_id), max(from_user, telegram_id)
         row = await conn.fetchrow(
             "INSERT INTO matches (user1, user2) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id",
@@ -1235,7 +1244,12 @@ async def accept_like(telegram_id, from_user):
             row = await conn.fetchrow(
                 "SELECT id FROM matches WHERE user1 = $1 AND user2 = $2", u1, u2
             )
-        return row['id'] if row else None
+        match_id = row['id'] if row else None
+        if match_id:
+            # Match hosil bo'lgach, ikki tomon o'rtasidagi eski pending
+            # xabarlarni (agar bo'lsa) chatga ko'chirib olamiz.
+            await deliver_pending_messages_to_match(from_user, telegram_id)
+        return match_id
     finally:
         await release_db(conn)
 
