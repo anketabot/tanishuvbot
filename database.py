@@ -1465,57 +1465,144 @@ async def mark_anon_run(run_date):
         await release_db(conn)
 
 
+def _anon_user_key(user):
+    return {
+        'id': user['telegram_id'],
+        'gender': user['gender'],
+        'age': user.get('age'),
+        'region': (user.get('region') or '').strip().lower() if user.get('region') else None,
+        'country': (user.get('country') or '').strip().lower() if user.get('country') else None,
+        'zodiac': _normalize_zodiac_for_db(user.get('zodiac')),
+        'goals': [g for g in (user.get('goals') or []) if g],
+        'interests': [i for i in (user.get('interests') or []) if i],
+        'only_serious_men': bool(user.get('only_serious_men')),
+    }
+
+
+def _anon_pair_score(user_a, user_b):
+    score = 0
+    if user_a['country'] and user_a['country'] == user_b['country']:
+        score += 20
+    if user_a['region'] and user_a['region'] == user_b['region']:
+        score += 10
+
+    if user_a['age'] is not None and user_b['age'] is not None:
+        age_diff = abs(user_a['age'] - user_b['age'])
+        if age_diff <= 2:
+            score += 12
+        elif age_diff <= 5:
+            score += 8
+        elif age_diff <= 10:
+            score += 4
+        elif age_diff <= 15:
+            score += 1
+
+    common_goals = set(user_a['goals']) & set(user_b['goals'])
+    score += len(common_goals) * 12
+
+    common_interests = set(user_a['interests']) & set(user_b['interests'])
+    score += len(common_interests) * 5
+
+    if user_a['zodiac'] and user_b['zodiac']:
+        compat = _zodiac_compat_db(user_a['zodiac'], user_b['zodiac'])
+        score += int(compat * 0.15)
+
+    if user_a['only_serious_men'] and 'goal_jiddiy' not in user_b['goals']:
+        score -= 10
+    if user_b['only_serious_men'] and 'goal_jiddiy' not in user_a['goals']:
+        score -= 10
+
+    return score
+
+
 async def create_daily_anon_matches(run_date):
-    """Kechqurungi anonim chat uchun jinsi mos (erkak-ayol) faol foydalanuvchilarni
-    tasodifiy juftlab, 'pending' holatda taklif yaratadi. Avval hech qachon
-    anonim juft bo'lmagan foydalanuvchilarga ustunlik beriladi.
+    """Anonim chat uchun jins mos foydalanuvchilarni eng yaxshi moslik balli bilan juftlaydi.
+    Bu funksiya faqat faol, profil to'liq, bloklanmagan va allaqachon match bo'lmagan foydalanuvchilarni hisobga oladi.
+    Yaqinda (oxirgi 30 kun) anonim juft bo'lganlar takroran juftlanmaydi.
     Yaratilgan juftliklar ro'yxatini qaytaradi: [(user_a, user_b, anon_match_id), ...]
+
+    Eslatma: bu funksiyaning o'zida vaqt yoki "kuniga bir marta" bo'yicha hech
+    qanday cheklov yo'q — shuning uchun kunning istalgan vaqtida (masalan admin
+    panel/API orqali qo'lda) xohlagancha marta chaqirilishi mumkin. "Kuniga
+    faqat bir marta avtomatik ishga tushirish" cheklovi faqat
+    `anon_match_scheduler`ning o'zida (has_anon_run_today orqali) qo'llaniladi
+    va u faqat 21:00 dagi avtomatik ishga tegishli, qo'lda chaqirishga bu
+    cheklov umuman ta'sir qilmaydi.
     """
     conn = await get_db()
     try:
-        rows = await conn.fetch("""
-            SELECT telegram_id, gender FROM users
+        users = await conn.fetch("""
+            SELECT telegram_id, gender, age, region, country, zodiac, goals, interests, only_serious_men
+            FROM users
             WHERE is_active = TRUE
               AND gender IN ('erkak', 'ayol')
               AND full_name IS NOT NULL
         """)
-        males = [r['telegram_id'] for r in rows if r['gender'] == 'erkak']
-        females = [r['telegram_id'] for r in rows if r['gender'] == 'ayol']
-        random.shuffle(males)
-        random.shuffle(females)
+        user_map = {r['telegram_id']: _anon_user_key(r) for r in users}
+        males = [u for u in users if u['gender'] == 'erkak']
+        females = [u for u in users if u['gender'] == 'ayol']
 
-        history_rows = await conn.fetch("SELECT user_a, user_b FROM anon_matches")
-        paired_before = set()
-        for r in history_rows:
-            paired_before.add((r['user_a'], r['user_b']))
-            paired_before.add((r['user_b'], r['user_a']))
+        blocked_rows = await conn.fetch(
+            "SELECT blocker, blocked FROM blocks"
+        )
+        blocked_pairs = {(r['blocker'], r['blocked']) for r in blocked_rows}
+        blocked_pairs |= {(r['blocked'], r['blocker']) for r in blocked_rows}
 
+        match_rows = await conn.fetch("SELECT user1, user2 FROM matches")
+        matched_pairs = {(r['user1'], r['user2']) for r in match_rows}
+        matched_pairs |= {(r['user2'], r['user1']) for r in match_rows}
+
+        active_anon_rows = await conn.fetch(
+            "SELECT user_a, user_b FROM anon_matches WHERE status IN ('pending', 'active')"
+        )
+        currently_busy = set()
+        for r in active_anon_rows:
+            currently_busy.add(r['user_a'])
+            currently_busy.add(r['user_b'])
+
+        recent_cutoff = run_date - timedelta(days=30)
+        recent_anon_rows = await conn.fetch(
+            "SELECT user_a, user_b FROM anon_matches WHERE match_date >= $1",
+            recent_cutoff
+        )
+        recent_pairs = {(r['user_a'], r['user_b']) for r in recent_anon_rows}
+        recent_pairs |= {(r['user_b'], r['user_a']) for r in recent_anon_rows}
+
+        candidates = []
+        for m in males:
+            if m['telegram_id'] in currently_busy:
+                continue
+            for f in females:
+                if f['telegram_id'] in currently_busy:
+                    continue
+                if (m['telegram_id'], f['telegram_id']) in blocked_pairs:
+                    continue
+                if (m['telegram_id'], f['telegram_id']) in matched_pairs:
+                    continue
+                if (m['telegram_id'], f['telegram_id']) in recent_pairs:
+                    continue
+
+                score = _anon_pair_score(user_map[m['telegram_id']], user_map[f['telegram_id']])
+                candidates.append((score, m['telegram_id'], f['telegram_id']))
+
+        candidates.sort(reverse=True, key=lambda item: item[0])
+
+        used_males = set()
         used_females = set()
         created_pairs = []
-
-        def pick_partner(male_id, avoid_history=True):
-            for f in females:
-                if f in used_females:
-                    continue
-                if avoid_history and (male_id, f) in paired_before:
-                    continue
-                return f
-            return None
-
-        for m in males:
-            partner = pick_partner(m, avoid_history=True)
-            if partner is None:
-                # Barchasi avval juftlashgan bo'lsa ham, bo'sh bo'lgan birini olamiz
-                partner = pick_partner(m, avoid_history=False)
-            if partner is None:
+        for score, m_id, f_id in candidates:
+            if score <= 0:
+                break
+            if m_id in used_males or f_id in used_females:
                 continue
-            used_females.add(partner)
+            used_males.add(m_id)
+            used_females.add(f_id)
             row = await conn.fetchrow(
                 """INSERT INTO anon_matches (user_a, user_b, match_date, status)
                    VALUES ($1, $2, $3, 'pending') RETURNING id""",
-                m, partner, run_date
+                m_id, f_id, run_date
             )
-            created_pairs.append((m, partner, row['id']))
+            created_pairs.append((m_id, f_id, row['id']))
 
         return created_pairs
     finally:
@@ -1614,10 +1701,10 @@ async def send_anon_message(anon_match_id, sender_id, message):
         await release_db(conn)
 
 
-async def request_anon_reveal(telegram_id, anon_match_id):
-    """Foydalanuvchi profilni ochishni (asosiy chatga o'tishni) so'raydi.
-    Ikkalasi ham so'rasa - anonim suhbat asosiy (ochiq) chatga aylantiriladi,
-    barcha xabarlar asosiy chatga ko'chiriladi."""
+async def request_anon_reveal(telegram_id, anon_match_id, accept=True):
+    """Foydalanuvchi profilni ochishni (asosiy chatga o'tishni) so'raydi yoki rad etadi.
+    Ikkalasi ham so'rasa - anonim suhbat asosiy (ochiq) chatga aylantiriladi.
+    Agar bir tomon rad etsa, boshqa tomon xabardor qilinadi va chat davom etadi."""
     conn = await get_db()
     try:
         row = await conn.fetchrow(
@@ -1629,6 +1716,23 @@ async def request_anon_reveal(telegram_id, anon_match_id):
         other_id = row['user_b'] if telegram_id == row['user_a'] else row['user_a']
         is_a = telegram_id == row['user_a']
         col = 'user_a_reveal' if is_a else 'user_b_reveal'
+        other_col = 'user_b_reveal' if is_a else 'user_a_reveal'
+
+        if not accept:
+            if row[other_col]:
+                await conn.execute(
+                    "UPDATE anon_matches SET user_a_reveal = FALSE, user_b_reveal = FALSE, updated_at = NOW() WHERE id = $1",
+                    anon_match_id
+                )
+                return {'status': 'declined', 'other_id': other_id}
+            if row[col]:
+                await conn.execute(
+                    f"UPDATE anon_matches SET {col} = FALSE, updated_at = NOW() WHERE id = $1",
+                    anon_match_id
+                )
+                return {'status': 'cancelled', 'other_id': other_id}
+            return {'status': 'declined', 'other_id': other_id}
+
         await conn.execute(
             f"UPDATE anon_matches SET {col} = TRUE, updated_at = NOW() WHERE id = $1",
             anon_match_id
@@ -1664,7 +1768,8 @@ async def request_anon_reveal(telegram_id, anon_match_id):
                 match_id, anon_match_id
             )
             return {'status': 'revealed', 'match_id': match_id, 'other_id': other_id}
-        return {'status': 'waiting', 'other_id': other_id}
+
+        return {'status': 'waiting', 'other_id': other_id, 'notify_other': not bool(updated[other_col])}
     finally:
         await release_db(conn)
 
