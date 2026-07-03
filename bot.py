@@ -2738,6 +2738,11 @@ async def send_pending_message_api(request):
         if not from_user_data or not to_user_data:
             return web.json_response({'success': False, 'error': 'User not found'}, status=404)
 
+        # Xabarni bazaga saqlaymiz - shunda match bo'lgach avtomatik
+        # chatga ko'chadi (avval bu qadam yo'q edi, shuning uchun xabar
+        # hech qayerga saqlanmay yo'qolib qolardi).
+        await db.save_pending_message(from_user, to_user, message)
+
         try:
             to_lang = await get_user_lang(to_user)
             sender_name = from_user_data.get('full_name', 'Foydalanuvchi')
@@ -2747,10 +2752,11 @@ async def send_pending_message_api(request):
                 f"Javob berish uchun Web App'dagi Chat bo'limini tekshiring."
             )
             await bot.send_message(int(to_user), notify_msg, parse_mode="Markdown")
-            return web.json_response({'success': True})
         except Exception as e:
             logger.error(f"Pending message send error: {e}")
-            return web.json_response({'success': False, 'error': str(e)}, status=500)
+            # Telegram xabarnomasi ketmasa ham, xabar bazada saqlanib qoldi
+
+        return web.json_response({'success': True})
 
     except Exception as e:
         logger.error(f"SEND PENDING MESSAGE API xatolik: {e}", exc_info=True)
