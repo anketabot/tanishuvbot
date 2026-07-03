@@ -112,6 +112,8 @@ T = {
         'chat_started': "✅ Siz *{name}* bilan muloqotni boshladingiz!",
         'rejected': "❌ *{name}* sizni rad qildi.\n\nKeyinroq yana sinab ko'ring.",
         'anon_invite_notify': "🌙 *Kechqurungi sirli suhbatdosh*\n\nSizga bugun kechqurun anonim suhbatdosh topildi! Ismi va rasmi hozircha yashirin.\n\nWeb App'ni oching va \"Muloqot\" bo'limidan qabul qiling yoki rad eting 👇",
+        'anon_reveal_request_notify': "🌙 Suhbatdoshingiz profilni ochishni so'ramoqda. Agar rozilik bersangiz, suhbat asosiy Chat bo'limiga ko'chiriladi.",
+        'anon_reveal_declined_notify': "😔 Sizning profil ochish taklifingiz hozircha qabul qilinmadi. Anonim chat davom etmoqda.",
         'anon_declined_notify': "😔 Suhbatdoshingiz anonim chatni rad etdi. Ertaga yana urinib ko'rasiz!",
         'anon_disconnected_notify': "🚪 Suhbatdoshingiz anonim chatni tark etdi. Suhbat yakunlandi.",
         'anon_revealed_notify': "🎉 Ajoyib! Ikkalangiz ham profilni ochishga rozi bo'ldingiz. Endi asosiy Chat bo'limida suhbatni davom ettirishingiz mumkin.",
@@ -3268,23 +3270,29 @@ async def anon_send_api(request):
 
 
 async def anon_reveal_api(request):
-    """Foydalanuvchi profilni ochish (asosiy chatga o'tish)ni so'raydi."""
+    """Foydalanuvchi profilni ochish (asosiy chatga o'tish)ni so'raydi yoki javob beradi."""
     try:
         data = await request.json()
         telegram_id = int(data.get('telegram_id'))
         anon_match_id = int(data.get('anon_match_id'))
+        accept = bool(data.get('accept', True))
 
-
-        result = await db.request_anon_reveal(telegram_id, anon_match_id)
+        result = await db.request_anon_reveal(telegram_id, anon_match_id, accept)
         if not result:
             return web.json_response({'success': False, 'error': 'Chat topilmadi'}, status=404)
 
         other_id = result.get('other_id')
         try:
-            if result['status'] == 'revealed' and other_id:
+            if result['status'] == 'waiting' and result.get('notify_other') and other_id:
+                other_lang = await get_user_lang(other_id)
+                await bot.send_message(other_id, t(other_lang, 'anon_reveal_request_notify'))
+            elif result['status'] == 'revealed' and other_id:
                 for uid in (telegram_id, other_id):
                     lang = await get_user_lang(uid)
                     await bot.send_message(uid, t(lang, 'anon_revealed_notify'))
+            elif result['status'] == 'declined' and other_id:
+                other_lang = await get_user_lang(other_id)
+                await bot.send_message(other_id, t(other_lang, 'anon_reveal_declined_notify'))
         except Exception as notify_err:
             logger.warning(f"Anon reveal notify error: {notify_err}")
 
@@ -3338,22 +3346,53 @@ async def _notify_anon_pair(user_a, user_b):
             logger.warning(f"Anon invite notify error for {uid}: {e}")
 
 
+async def admin_anon_run_match_api(request):
+    """Admin uchun: anonim tungi chat juftlashuvini FAQAT 21:00 da emas, istalgan
+    vaqtda qo'lda ishga tushirish. `create_daily_anon_matches` allaqachon band
+    (pending/active), bloklangan, oddiy match bo'lgan yoki oxirgi 30 kunda anonim
+    juft bo'lgan foydalanuvchilarni o'zi chiqarib tashlaydi — shuning uchun buni
+    kuniga bir necha marta chaqirish xavfsiz: faqat hozircha bo'sh va mos
+    foydalanuvchilar orasidan yangi juftliklar yaratiladi."""
+    try:
+        data = await request.json()
+        if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+
+        today = datetime.now(TASHKENT_TZ).date()
+        pairs = await db.create_daily_anon_matches(today)
+        logger.info(f"Anonim chat (qo'lda ishga tushirildi): {len(pairs)} ta juftlik yaratildi ({today})")
+
+        for user_a, user_b, _anon_id in pairs:
+            await _notify_anon_pair(user_a, user_b)
+
+        return web.json_response({
+            'success': True,
+            'pairs_created': len(pairs),
+            'pairs': [
+                {'user_a': user_a, 'user_b': user_b, 'anon_match_id': anon_id}
+                for user_a, user_b, anon_id in pairs
+            ]
+        })
+    except Exception as e:
+        logger.error(f"ADMIN ANON RUN MATCH API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def anon_match_scheduler():
-    """Har kuni Toshkent vaqti bilan soat 21:00 da mos foydalanuvchilarni
-    anonim chatga ulaydi. Server doim ishlab turadigan background task."""
-    logger.info("Anonim tungi chat scheduler ishga tushdi (kunlik 21:00, Toshkent vaqti)")
+    """Har kuni Toshkent vaqti bilan bir marta, server ishga tushganidan keyin
+    birinchi imkoniyatda anonim chat uchun juftlarni yaratadi."""
+    logger.info("Anonim tungi chat scheduler ishga tushdi")
     while True:
         try:
             now = datetime.now(TASHKENT_TZ)
             today = now.date()
-            if now.hour == 21:
-                already_ran = await db.has_anon_run_today(today)
-                if not already_ran:
-                    await db.mark_anon_run(today)
-                    pairs = await db.create_daily_anon_matches(today)
-                    logger.info(f"Anonim chat: {len(pairs)} ta juftlik yaratildi ({today})")
-                    for user_a, user_b, _anon_id in pairs:
-                        await _notify_anon_pair(user_a, user_b)
+            already_ran = await db.has_anon_run_today(today)
+            if not already_ran:
+                await db.mark_anon_run(today)
+                pairs = await db.create_daily_anon_matches(today)
+                logger.info(f"Anonim chat: {len(pairs)} ta juftlik yaratildi ({today})")
+                for user_a, user_b, _anon_id in pairs:
+                    await _notify_anon_pair(user_a, user_b)
         except Exception as e:
             logger.error(f"Anon match scheduler xatolik: {e}", exc_info=True)
         await asyncio.sleep(60)
@@ -3410,6 +3449,7 @@ async def main():
     app.router.add_post('/api/anon/send', anon_send_api)
     app.router.add_post('/api/anon/reveal', anon_reveal_api)
     app.router.add_post('/api/anon/disconnect', anon_disconnect_api)
+    app.router.add_post('/api/admin/anon/run_match', admin_anon_run_match_api)  # istalgan vaqtda qo'lda ishga tushirish
 
     asyncio.create_task(anon_match_scheduler())
 
