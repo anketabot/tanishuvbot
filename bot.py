@@ -111,10 +111,8 @@ T = {
         'like_accepted': "🎉 *{name}* sizning like-ingizni qabul qildi!\n\n💬 Endi Web App'dagi Chat bo'limidan suhbat boshlashingiz mumkin.",
         'chat_started': "✅ Siz *{name}* bilan muloqotni boshladingiz!",
         'rejected': "❌ *{name}* sizni rad qildi.\n\nKeyinroq yana sinab ko'ring.",
-        'anon_invite_notify': "🌙 *Kechqurungi sirli suhbatdosh*\n\nSizga bugun kechqurun anonim suhbatdosh topildi! Ismi va rasmi hozircha yashirin.\n\nWeb App'ni oching va \"Muloqot\" bo'limidan qabul qiling yoki rad eting 👇",
         'anon_reveal_request_notify': "🌙 Suhbatdoshingiz profilni ochishni so'ramoqda. Agar rozilik bersangiz, suhbat asosiy Chat bo'limiga ko'chiriladi.",
         'anon_reveal_declined_notify': "😔 Sizning profil ochish taklifingiz hozircha qabul qilinmadi. Anonim chat davom etmoqda.",
-        'anon_declined_notify': "😔 Suhbatdoshingiz anonim chatni rad etdi. Ertaga yana urinib ko'rasiz!",
         'anon_disconnected_notify': "🚪 Suhbatdoshingiz anonim chatni tark etdi. Suhbat yakunlandi.",
         'anon_revealed_notify': "🎉 Ajoyib! Ikkalangiz ham profilni ochishga rozi bo'ldingiz. Endi asosiy Chat bo'limida suhbatni davom ettirishingiz mumkin.",
         'anon_match_found_notify': "🌙 *Anonim suhbatdosh topildi!*\n\nSizga mos suhbatdosh topildi va chat allaqachon boshlandi. Ismi va rasmi hozircha yashirin.\n\nWeb App'ni oching va \"Muloqot\" bo'limidan suhbatni davom ettiring 👇",
@@ -3240,35 +3238,6 @@ async def anon_queue_leave_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def anon_respond_api(request):
-    """Foydalanuvchi anonim chat taklifini qabul qiladi yoki rad etadi."""
-    try:
-        data = await request.json()
-        telegram_id = int(data.get('telegram_id'))
-        anon_match_id = int(data.get('anon_match_id'))
-        accept = bool(data.get('accept'))
-
-
-        result = await db.respond_anon_match(telegram_id, anon_match_id, accept)
-        if not result:
-            return web.json_response({'success': False, 'error': 'Taklif topilmadi'}, status=404)
-
-        other_id = result.get('other_id')
-        try:
-            if result['status'] == 'declined' and other_id:
-                other_lang = await get_user_lang(other_id)
-                await bot.send_message(other_id, t(other_lang, 'anon_declined_notify'))
-            elif result['status'] == 'active' and other_id:
-                other_lang = await get_user_lang(other_id)
-                await bot.send_message(other_id, "💬 " + t(other_lang, 'anon_invite_notify').split('\n\n')[0] + "\n\nSuhbatdoshingiz taklifni qabul qildi! Anonim chat boshlandi 🎉")
-        except Exception as notify_err:
-            logger.warning(f"Anon respond notify error: {notify_err}")
-
-        return web.json_response({'success': True, 'status': result['status']})
-    except Exception as e:
-        logger.error(f"ANON RESPOND API xatolik: {e}", exc_info=True)
-        return web.json_response({'success': False, 'error': str(e)}, status=500)
-
 
 async def anon_messages_api(request):
     try:
@@ -3529,7 +3498,6 @@ async def main():
     app.router.add_post('/api/anon/status', anon_status_api)
     app.router.add_post('/api/anon/queue/join', anon_queue_join_api)
     app.router.add_post('/api/anon/queue/leave', anon_queue_leave_api)
-    app.router.add_post('/api/anon/respond', anon_respond_api)
     app.router.add_post('/api/anon/messages', anon_messages_api)
     app.router.add_post('/api/anon/send', anon_send_api)
     app.router.add_post('/api/anon/reveal', anon_reveal_api)
