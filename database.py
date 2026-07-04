@@ -287,6 +287,16 @@ async def init_db():
             )
         """)
 
+        # Istalgan vaqtda ("on-demand") anonim suhbatdosh qidirish uchun navbat.
+        # Foydalanuvchi tugma bosib shu jadvalga qo'shiladi, fon jarayoni
+        # (anon_queue_matcher) navbatdagilarni muntazam ravishda juftlab boradi.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS anon_queue (
+                telegram_id BIGINT PRIMARY KEY,
+                joined_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_anon_matches_user_a ON anon_matches(user_a)
         """)
@@ -1603,6 +1613,139 @@ async def create_daily_anon_matches(run_date):
                 m_id, f_id, run_date
             )
             created_pairs.append((m_id, f_id, row['id']))
+
+        return created_pairs
+    finally:
+        await release_db(conn)
+
+
+async def is_in_anon_queue(telegram_id):
+    """Foydalanuvchi hozir on-demand anonim navbatda turgan-turmaganini tekshiradi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("SELECT telegram_id FROM anon_queue WHERE telegram_id = $1", telegram_id)
+        return row is not None
+    finally:
+        await release_db(conn)
+
+
+async def join_anon_queue(telegram_id):
+    """Foydalanuvchini on-demand anonim suhbat navbatiga qo'shadi.
+    Juftlashning o'zi alohida fon jarayoni (`match_from_queue`) tomonidan amalga oshiriladi."""
+    conn = await get_db()
+    try:
+        await conn.execute(
+            "INSERT INTO anon_queue (telegram_id) VALUES ($1) ON CONFLICT (telegram_id) DO NOTHING",
+            telegram_id
+        )
+        return True
+    finally:
+        await release_db(conn)
+
+
+async def leave_anon_queue(telegram_id):
+    """Foydalanuvchini on-demand anonim suhbat navbatidan chiqaradi (bekor qilish)."""
+    conn = await get_db()
+    try:
+        await conn.execute("DELETE FROM anon_queue WHERE telegram_id = $1", telegram_id)
+        return True
+    finally:
+        await release_db(conn)
+
+
+async def match_from_queue():
+    """Navbatda turganlarni bir-biriga juftlaydi (on-demand, istalgan vaqt).
+
+    Kuniga bir marta ishlaydigan `create_daily_anon_matches`dan farqi:
+    - faqat `anon_queue`da real vaqtda turganlarni ko'rib chiqadi;
+    - "so'nggi 30 kunda juft bo'lganlar" cheklovi qo'llanilmaydi, chunki
+      foydalanuvchi bu safar ham o'zi xohlab navbatga turgan;
+    - moslik balli eng past bo'lsa ham (hatto manfiy bo'lsa ham) juftlaydi,
+      chunki maqsad - foydalanuvchini iloji boricha tezroq kimdir bilan ulash.
+
+    Yaratilgan juftliklar ro'yxatini qaytaradi: [(user_a, user_b, anon_match_id), ...]
+    """
+    conn = await get_db()
+    try:
+        queue_rows = await conn.fetch("SELECT telegram_id FROM anon_queue ORDER BY joined_at ASC")
+        if len(queue_rows) < 2:
+            return []
+        queue_ids = [r['telegram_id'] for r in queue_rows]
+
+        users = await conn.fetch("""
+            SELECT telegram_id, gender, age, region, country, zodiac, goals, interests, only_serious_men
+            FROM users
+            WHERE telegram_id = ANY($1::bigint[])
+              AND is_active = TRUE
+              AND gender IN ('erkak', 'ayol')
+              AND full_name IS NOT NULL
+        """, queue_ids)
+        user_map = {r['telegram_id']: _anon_user_key(r) for r in users}
+
+        # Profili to'liq bo'lmagan yoki faol bo'lmagan foydalanuvchilarni navbatdan chiqarib tashlaymiz
+        invalid_ids = [tid for tid in queue_ids if tid not in user_map]
+        if invalid_ids:
+            await conn.execute("DELETE FROM anon_queue WHERE telegram_id = ANY($1::bigint[])", invalid_ids)
+
+        males = [tid for tid in queue_ids if tid in user_map and user_map[tid]['gender'] == 'erkak']
+        females = [tid for tid in queue_ids if tid in user_map and user_map[tid]['gender'] == 'ayol']
+        if not males or not females:
+            return []
+
+        blocked_rows = await conn.fetch("SELECT blocker, blocked FROM blocks")
+        blocked_pairs = {(r['blocker'], r['blocked']) for r in blocked_rows}
+        blocked_pairs |= {(r['blocked'], r['blocker']) for r in blocked_rows}
+
+        match_rows = await conn.fetch("SELECT user1, user2 FROM matches")
+        matched_pairs = {(r['user1'], r['user2']) for r in match_rows}
+        matched_pairs |= {(r['user2'], r['user1']) for r in match_rows}
+
+        active_anon_rows = await conn.fetch(
+            "SELECT user_a, user_b FROM anon_matches WHERE status IN ('pending', 'active')"
+        )
+        currently_busy = set()
+        for r in active_anon_rows:
+            currently_busy.add(r['user_a'])
+            currently_busy.add(r['user_b'])
+
+        # Allaqachon boshqa anonim suhbatga band bo'lib qolganlarni navbatdan tozalaymiz
+        stale_busy_ids = [tid for tid in queue_ids if tid in currently_busy]
+        if stale_busy_ids:
+            await conn.execute("DELETE FROM anon_queue WHERE telegram_id = ANY($1::bigint[])", stale_busy_ids)
+
+        candidates = []
+        for m_id in males:
+            if m_id in currently_busy:
+                continue
+            for f_id in females:
+                if f_id in currently_busy:
+                    continue
+                if (m_id, f_id) in blocked_pairs:
+                    continue
+                if (m_id, f_id) in matched_pairs:
+                    continue
+                score = _anon_pair_score(user_map[m_id], user_map[f_id])
+                candidates.append((score, m_id, f_id))
+
+        candidates.sort(reverse=True, key=lambda item: item[0])
+
+        used = set()
+        created_pairs = []
+        for score, m_id, f_id in candidates:
+            if m_id in used or f_id in used:
+                continue
+            used.add(m_id)
+            used.add(f_id)
+            row = await conn.fetchrow(
+                """INSERT INTO anon_matches
+                   (user_a, user_b, match_date, status, user_a_accepted, user_b_accepted)
+                   VALUES ($1, $2, CURRENT_DATE, 'active', TRUE, TRUE) RETURNING id""",
+                m_id, f_id
+            )
+            created_pairs.append((m_id, f_id, row['id']))
+
+        if used:
+            await conn.execute("DELETE FROM anon_queue WHERE telegram_id = ANY($1::bigint[])", list(used))
 
         return created_pairs
     finally:
