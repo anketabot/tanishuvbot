@@ -117,6 +117,7 @@ T = {
         'anon_declined_notify': "😔 Suhbatdoshingiz anonim chatni rad etdi. Ertaga yana urinib ko'rasiz!",
         'anon_disconnected_notify': "🚪 Suhbatdoshingiz anonim chatni tark etdi. Suhbat yakunlandi.",
         'anon_revealed_notify': "🎉 Ajoyib! Ikkalangiz ham profilni ochishga rozi bo'ldingiz. Endi asosiy Chat bo'limida suhbatni davom ettirishingiz mumkin.",
+        'anon_match_found_notify': "🌙 *Anonim suhbatdosh topildi!*\n\nSizga mos suhbatdosh topildi va chat allaqachon boshlandi. Ismi va rasmi hozircha yashirin.\n\nWeb App'ni oching va \"Muloqot\" bo'limidan suhbatni davom ettiring 👇",
         'like_not_found': "Like topilmadi",
         'super_like_label': "⭐ *Super Like Match!* ",
         'match_label': "🎉 *Match!* ",
@@ -3188,14 +3189,53 @@ def _anon_public_status(anon_row, telegram_id):
 
 
 async def anon_status_api(request):
-    """Foydalanuvchining joriy tungi anonim chat holatini qaytaradi (taklif/faol/yo'q)."""
+    """Foydalanuvchining joriy anonim chat holatini qaytaradi (navbatda/taklif/faol/yo'q)."""
     try:
         data = await request.json()
         telegram_id = int(data.get('telegram_id'))
         row = await db.get_my_anon_match(telegram_id)
-        return web.json_response({'success': True, 'anon': _anon_public_status(row, telegram_id)})
+        in_queue = False if row else await db.is_in_anon_queue(telegram_id)
+        return web.json_response({
+            'success': True,
+            'anon': _anon_public_status(row, telegram_id),
+            'in_queue': in_queue,
+        })
     except Exception as e:
         logger.error(f"ANON STATUS API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def anon_queue_join_api(request):
+    """Foydalanuvchi 'Anonim suhbatdosh topish' tugmasini bosganda istalgan vaqt
+    navbatga qo'shiladi. Juftlashuvning o'zi fon jarayoni orqali amalga oshadi."""
+    try:
+        data = await request.json()
+        telegram_id = int(data.get('telegram_id'))
+
+        existing = await db.get_my_anon_match(telegram_id)
+        if existing:
+            return web.json_response({'success': True, 'anon': _anon_public_status(existing, telegram_id), 'in_queue': False})
+
+        user = await db.get_user(telegram_id)
+        if not user or not user.get('gender') or not user.get('full_name'):
+            return web.json_response({'success': False, 'error': 'Profil to\'liq emas'}, status=400)
+
+        await db.join_anon_queue(telegram_id)
+        return web.json_response({'success': True, 'in_queue': True})
+    except Exception as e:
+        logger.error(f"ANON QUEUE JOIN API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
+async def anon_queue_leave_api(request):
+    """Foydalanuvchi qidiruvni bekor qiladi va navbatdan chiqadi."""
+    try:
+        data = await request.json()
+        telegram_id = int(data.get('telegram_id'))
+        await db.leave_anon_queue(telegram_id)
+        return web.json_response({'success': True})
+    except Exception as e:
+        logger.error(f"ANON QUEUE LEAVE API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
@@ -3346,6 +3386,44 @@ async def _notify_anon_pair(user_a, user_b):
             logger.warning(f"Anon invite notify error for {uid}: {e}")
 
 
+async def _notify_anon_queue_match(user_a, user_b):
+    """On-demand navbatda juftlashgan ikkala foydalanuvchiga ham xabar yuboradi.
+    Bu holatda chat darhol 'active' bo'lib yaratilgani uchun qabul/rad qilish
+    kerak emas — shunchaki suhbat boshlanganini bildiramiz."""
+    for uid in (user_a, user_b):
+        try:
+            lang = await get_user_lang(uid)
+            builder = InlineKeyboardBuilder()
+            builder.row(InlineKeyboardButton(text=t(lang, 'btn_webapp'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+            await bot.send_message(
+                uid,
+                t(lang, 'anon_match_found_notify'),
+                parse_mode="Markdown",
+                reply_markup=builder.as_markup()
+            )
+        except TelegramForbiddenError:
+            pass
+        except Exception as e:
+            logger.warning(f"Anon queue match notify error for {uid}: {e}")
+
+
+async def anon_queue_matcher():
+    """Fon jarayoni: on-demand navbatda turgan foydalanuvchilarni muntazam
+    ravishda (har necha soniyada) bir-biriga juftlab boradi, shunda anonim
+    suhbatdosh istalgan vaqtda, kechqurunni kutmasdan topiladi."""
+    logger.info("Anonim on-demand navbat matcher (anon_queue_matcher) ishga tushdi")
+    while True:
+        try:
+            pairs = await db.match_from_queue()
+            if pairs:
+                logger.info(f"On-demand anonim chat: {len(pairs)} ta juftlik yaratildi")
+            for user_a, user_b, _anon_id in pairs:
+                await _notify_anon_queue_match(user_a, user_b)
+        except Exception as e:
+            logger.error(f"Anon queue matcher xatolik: {e}", exc_info=True)
+        await asyncio.sleep(8)
+
+
 async def admin_anon_run_match_api(request):
     """Admin uchun: anonim tungi chat juftlashuvini FAQAT 21:00 da emas, istalgan
     vaqtda qo'lda ishga tushirish. `create_daily_anon_matches` allaqachon band
@@ -3378,26 +3456,24 @@ async def admin_anon_run_match_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-ANON_MATCH_INTERVAL_SECONDS = 300  # har 5 daqiqada yangi mos foydalanuvchilarni juftlaydi
-
-
 async def anon_match_scheduler():
-    """Anonim chat uchun juftlarni kuniga bir marta emas, muntazam ravishda
-    (har ANON_MATCH_INTERVAL_SECONDS soniyada) yaratadi — shunday qilib
-    foydalanuvchilar kun/tunning istalgan vaqtida anonim suhbatdosh topa oladi,
-    faqat kechqurungi bitta oynaga bog'liq bo'lmaydi."""
-    logger.info("Anonim chat scheduler ishga tushdi (istalgan vaqt rejimi)")
+    """Har kuni Toshkent vaqti bilan bir marta, server ishga tushganidan keyin
+    birinchi imkoniyatda anonim chat uchun juftlarni yaratadi."""
+    logger.info("Anonim tungi chat scheduler ishga tushdi")
     while True:
         try:
-            today = datetime.now(TASHKENT_TZ).date()
-            pairs = await db.create_daily_anon_matches(today)
-            if pairs:
+            now = datetime.now(TASHKENT_TZ)
+            today = now.date()
+            already_ran = await db.has_anon_run_today(today)
+            if not already_ran:
+                await db.mark_anon_run(today)
+                pairs = await db.create_daily_anon_matches(today)
                 logger.info(f"Anonim chat: {len(pairs)} ta juftlik yaratildi ({today})")
                 for user_a, user_b, _anon_id in pairs:
                     await _notify_anon_pair(user_a, user_b)
         except Exception as e:
             logger.error(f"Anon match scheduler xatolik: {e}", exc_info=True)
-        await asyncio.sleep(ANON_MATCH_INTERVAL_SECONDS)
+        await asyncio.sleep(60)
 
 
 async def main():
@@ -3446,6 +3522,8 @@ async def main():
 
     # Tungi anonim chat
     app.router.add_post('/api/anon/status', anon_status_api)
+    app.router.add_post('/api/anon/queue/join', anon_queue_join_api)
+    app.router.add_post('/api/anon/queue/leave', anon_queue_leave_api)
     app.router.add_post('/api/anon/respond', anon_respond_api)
     app.router.add_post('/api/anon/messages', anon_messages_api)
     app.router.add_post('/api/anon/send', anon_send_api)
@@ -3454,6 +3532,7 @@ async def main():
     app.router.add_post('/api/admin/anon/run_match', admin_anon_run_match_api)  # istalgan vaqtda qo'lda ishga tushirish
 
     asyncio.create_task(anon_match_scheduler())
+    asyncio.create_task(anon_queue_matcher())
 
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
