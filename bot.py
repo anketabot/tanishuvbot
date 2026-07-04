@@ -118,6 +118,7 @@ T = {
         'anon_disconnected_notify': "🚪 Suhbatdoshingiz anonim chatni tark etdi. Suhbat yakunlandi.",
         'anon_revealed_notify': "🎉 Ajoyib! Ikkalangiz ham profilni ochishga rozi bo'ldingiz. Endi asosiy Chat bo'limida suhbatni davom ettirishingiz mumkin.",
         'anon_match_found_notify': "🌙 *Anonim suhbatdosh topildi!*\n\nSizga mos suhbatdosh topildi va chat allaqachon boshlandi. Ismi va rasmi hozircha yashirin.\n\nWeb App'ni oching va \"Muloqot\" bo'limidan suhbatni davom ettiring 👇",
+        'anon_evening_reminder_notify': "🌙 *Anonim suhbat vaqti keldi!*\n\nIstalgan vaqt anonim suhbatdosh topishingiz mumkin. Hoziroq urinib ko'rasizmi?\n\nWeb App'ni oching, \"Muloqot\" bo'limida \"🔍 Suhbatdosh topish\" tugmasini bosing 👇",
         'like_not_found': "Like topilmadi",
         'super_like_label': "⭐ *Super Like Match!* ",
         'match_label': "🎉 *Match!* ",
@@ -3368,24 +3369,6 @@ async def anon_disconnect_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
-async def _notify_anon_pair(user_a, user_b):
-    for uid in (user_a, user_b):
-        try:
-            lang = await get_user_lang(uid)
-            builder = InlineKeyboardBuilder()
-            builder.row(InlineKeyboardButton(text=t(lang, 'btn_webapp'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
-            await bot.send_message(
-                uid,
-                t(lang, 'anon_invite_notify'),
-                parse_mode="Markdown",
-                reply_markup=builder.as_markup()
-            )
-        except TelegramForbiddenError:
-            pass
-        except Exception as e:
-            logger.warning(f"Anon invite notify error for {uid}: {e}")
-
-
 async def _notify_anon_queue_match(user_a, user_b):
     """On-demand navbatda juftlashgan ikkala foydalanuvchiga ham xabar yuboradi.
     Bu holatda chat darhol 'active' bo'lib yaratilgani uchun qabul/rad qilish
@@ -3441,7 +3424,7 @@ async def admin_anon_run_match_api(request):
         logger.info(f"Anonim chat (qo'lda ishga tushirildi): {len(pairs)} ta juftlik yaratildi ({today})")
 
         for user_a, user_b, _anon_id in pairs:
-            await _notify_anon_pair(user_a, user_b)
+            await _notify_anon_queue_match(user_a, user_b)
 
         return web.json_response({
             'success': True,
@@ -3457,20 +3440,42 @@ async def admin_anon_run_match_api(request):
 
 
 async def anon_match_scheduler():
-    """Har kuni Toshkent vaqti bilan bir marta, server ishga tushganidan keyin
-    birinchi imkoniyatda anonim chat uchun juftlarni yaratadi."""
-    logger.info("Anonim tungi chat scheduler ishga tushdi")
+    """Har kuni Toshkent vaqti bilan soat 21:00 da, bir marta, BARCHA faol
+    foydalanuvchilarga anonim suhbat haqida eslatma yuboradi.
+
+    Muhim: bu yerda hech kim avtomatik juftlashtirilmaydi - anonim suhbat
+    endi faqat kechqurun emas, istalgan vaqt ishlaydi. Haqiqiy juftlashtirish
+    doimiy ishlaydigan `anon_queue_matcher` fon jarayoni orqali amalga oshadi
+    (foydalanuvchi Web App'da "Qidirish" tugmasini bosganda). 21:00 dagi bu
+    xabar shunchaki barcha foydalanuvchilarni ilovani ochib qidiruvdan
+    foydalanishga taklif qiladigan eslatma, xolos."""
+    logger.info("Anonim kechqurungi eslatma scheduleri ishga tushdi")
     while True:
         try:
             now = datetime.now(TASHKENT_TZ)
             today = now.date()
             already_ran = await db.has_anon_run_today(today)
-            if not already_ran:
+            if not already_ran and now.hour >= 21:
                 await db.mark_anon_run(today)
-                pairs = await db.create_daily_anon_matches(today)
-                logger.info(f"Anonim chat: {len(pairs)} ta juftlik yaratildi ({today})")
-                for user_a, user_b, _anon_id in pairs:
-                    await _notify_anon_pair(user_a, user_b)
+                recipients = await db.get_anon_reminder_recipients()
+                sent = 0
+                for uid in recipients:
+                    try:
+                        lang = await get_user_lang(uid)
+                        builder = InlineKeyboardBuilder()
+                        builder.row(InlineKeyboardButton(text=t(lang, 'btn_webapp'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+                        await bot.send_message(
+                            uid,
+                            t(lang, 'anon_evening_reminder_notify'),
+                            parse_mode="Markdown",
+                            reply_markup=builder.as_markup()
+                        )
+                        sent += 1
+                    except TelegramForbiddenError:
+                        pass
+                    except Exception as e:
+                        logger.warning(f"Anon evening reminder error for {uid}: {e}")
+                logger.info(f"Anonim kechqurungi eslatma: {sent}/{len(recipients)} foydalanuvchiga yuborildi ({today})")
         except Exception as e:
             logger.error(f"Anon match scheduler xatolik: {e}", exc_info=True)
         await asyncio.sleep(60)
