@@ -250,8 +250,9 @@ async def init_db():
             )
         """)
 
-        # ===== TUNGI ANONIM CHAT ("Kechqurungi sirli suhbatdosh") =====
-        # Har kuni kechqurun (21:00) tizim ikki mos foydalanuvchini anonim ravishda ulaydi.
+        # ===== ANONIM SUHBATDOSH ("Anonim chat") =====
+        # Foydalanuvchi istalgan vaqt "Qidirish" tugmasini bosib, tizim ikki mos
+        # foydalanuvchini anonim ravishda ulaydi (on-demand navbat, anon_queue_matcher).
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS anon_matches (
                 id BIGSERIAL PRIMARY KEY,
@@ -1608,13 +1609,33 @@ async def create_daily_anon_matches(run_date):
             used_males.add(m_id)
             used_females.add(f_id)
             row = await conn.fetchrow(
-                """INSERT INTO anon_matches (user_a, user_b, match_date, status)
-                   VALUES ($1, $2, $3, 'pending') RETURNING id""",
+                """INSERT INTO anon_matches
+                   (user_a, user_b, match_date, status, user_a_accepted, user_b_accepted)
+                   VALUES ($1, $2, $3, 'active', TRUE, TRUE) RETURNING id""",
                 m_id, f_id, run_date
             )
             created_pairs.append((m_id, f_id, row['id']))
 
         return created_pairs
+    finally:
+        await release_db(conn)
+
+
+async def get_anon_reminder_recipients():
+    """Kechqurungi (21:00) eslatma yuborish uchun barcha faol va profili
+    to'liq bo'lgan foydalanuvchilarning telegram_id ro'yxatini qaytaradi.
+    Bu yerda hech qanday juftlashtirish bo'lmaydi - eslatma faqat
+    foydalanuvchini ilovani ochib, istalgan vaqt ishlaydigan qidiruvdan
+    foydalanishga taklif qiladi."""
+    conn = await get_db()
+    try:
+        rows = await conn.fetch("""
+            SELECT telegram_id FROM users
+            WHERE is_active = TRUE
+              AND gender IN ('erkak', 'ayol')
+              AND full_name IS NOT NULL
+        """)
+        return [r['telegram_id'] for r in rows]
     finally:
         await release_db(conn)
 
