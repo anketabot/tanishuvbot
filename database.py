@@ -1797,45 +1797,6 @@ async def get_anon_match(anon_match_id):
         await release_db(conn)
 
 
-async def respond_anon_match(telegram_id, anon_match_id, accept):
-    """Foydalanuvchi taklifni qabul qildi (accept=True) yoki rad etdi (accept=False).
-    Ikkalasi ham qabul qilsa 'active' bo'ladi. Kimdir rad etsa juftlik 'declined' bo'ladi
-    va suhbatdoshning oldiga ham xabar chiqishi uchun ikkinchi foydalanuvchi id'si qaytariladi."""
-    conn = await get_db()
-    try:
-        row = await conn.fetchrow(
-            "SELECT * FROM anon_matches WHERE id = $1 AND status = 'pending'", anon_match_id
-        )
-        if not row or telegram_id not in (row['user_a'], row['user_b']):
-            return None
-
-        other_id = row['user_b'] if telegram_id == row['user_a'] else row['user_a']
-
-        if not accept:
-            await conn.execute(
-                "UPDATE anon_matches SET status = 'declined', updated_at = NOW() WHERE id = $1",
-                anon_match_id
-            )
-            return {'status': 'declined', 'other_id': other_id}
-
-        is_a = telegram_id == row['user_a']
-        col = 'user_a_accepted' if is_a else 'user_b_accepted'
-        await conn.execute(
-            f"UPDATE anon_matches SET {col} = TRUE, updated_at = NOW() WHERE id = $1",
-            anon_match_id
-        )
-        updated = await conn.fetchrow("SELECT * FROM anon_matches WHERE id = $1", anon_match_id)
-        if updated['user_a_accepted'] and updated['user_b_accepted']:
-            await conn.execute(
-                "UPDATE anon_matches SET status = 'active', updated_at = NOW() WHERE id = $1",
-                anon_match_id
-            )
-            return {'status': 'active', 'other_id': other_id}
-        return {'status': 'waiting', 'other_id': other_id}
-    finally:
-        await release_db(conn)
-
-
 async def get_anon_messages(anon_match_id, limit=300):
     conn = await get_db()
     try:
