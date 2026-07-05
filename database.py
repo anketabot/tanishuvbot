@@ -828,6 +828,43 @@ def _zodiac_compat_db(k1, k2):
     return _ZODIAC_PCT.get((k1,k2)) or _ZODIAC_PCT.get((k2,k1)) or 50
 
 
+# Har bir burj uchun eng mos keladigan 3 ta burj (bot.py'dagi ZODIAC_COMPATIBILITY
+# bilan bir xil ma'lumot - shu yerda alohida saqlanadi, chunki bot.py database.py'ni
+# import qiladi va teskarisini qilib bo'lmaydi). Anonim on-demand navbatda
+# (match_from_queue) suhbatdoshni birinchi navbatda shu ro'yxat bo'yicha qidirish
+# uchun ishlatiladi.
+ZODIAC_MOS_BURJLAR = {
+    "qoy": ["arslon", "egizak", "oqotar"],
+    "buzoq": ["sunbula", "qisqichbaqa", "tog_echkisi"],
+    "egizak": ["qoy", "tarozi", "qovga"],
+    "qisqichbaqa": ["buzoq", "baliq", "chayon"],
+    "arslon": ["qoy", "egizak", "tarozi"],
+    "sunbula": ["buzoq", "tog_echkisi", "chayon"],
+    "tarozi": ["egizak", "arslon", "qovga"],
+    "chayon": ["qisqichbaqa", "baliq", "buzoq"],
+    "oqotar": ["qoy", "arslon", "qovga"],
+    "tog_echkisi": ["buzoq", "sunbula", "chayon"],
+    "qovga": ["oqotar", "egizak", "tarozi"],
+    "baliq": ["buzoq", "qisqichbaqa", "chayon"],
+}
+
+
+def _zodiac_is_good_match(z1, z2):
+    """Ikki burj bir-biriga (o'zaro) mos keladimi: bir xil burj yoki
+    ZODIAC_MOS_BURJLAR ro'yxatidagi 3 ta mos burjdan biri bo'lsa True.
+    Burjlardan biri noma'lum bo'lsa - False (keyin fallback bosqichida
+    baribir juftlanadi, lekin ustuvorlik berilmaydi)."""
+    if not z1 or not z2:
+        return False
+    if z1 == z2:
+        return True
+    if z2 in ZODIAC_MOS_BURJLAR.get(z1, []):
+        return True
+    if z1 in ZODIAC_MOS_BURJLAR.get(z2, []):
+        return True
+    return False
+
+
 # Markaziy Osiyo davlatlari
 CENTRAL_ASIA_COUNTRIES = [
     'O\'zbekiston', 'Ozbekiston', 'Uzbekistan', 'Ўзбекистон', 'Узбекистан',
@@ -1746,13 +1783,39 @@ async def match_from_queue():
                 if (m_id, f_id) in matched_pairs:
                     continue
                 score = _anon_pair_score(user_map[m_id], user_map[f_id])
-                candidates.append((score, m_id, f_id))
+                zodiac_ok = _zodiac_is_good_match(user_map[m_id]['zodiac'], user_map[f_id]['zodiac'])
+                candidates.append((zodiac_ok, score, m_id, f_id))
 
-        candidates.sort(reverse=True, key=lambda item: item[0])
+        # Avval burji mos (bir xil yoki 3 ta mos burjdan biri) nomzodlarni,
+        # so'ng qolganlarini ball bo'yicha kamayish tartibida saralaymiz.
+        # Shunda navbat: 1) burji mos + yuqori ball, 2) burji mos + past ball,
+        # 3) burji mos emas + yuqori ball, ...
+        candidates.sort(key=lambda item: (not item[0], -item[1]))
 
         used = set()
         created_pairs = []
-        for score, m_id, f_id in candidates:
+        # 1-bosqich: burji mos keladiganlarni juftlaymiz
+        for zodiac_ok, score, m_id, f_id in candidates:
+            if not zodiac_ok:
+                continue
+            if m_id in used or f_id in used:
+                continue
+            used.add(m_id)
+            used.add(f_id)
+            row = await conn.fetchrow(
+                """INSERT INTO anon_matches
+                   (user_a, user_b, match_date, status, user_a_accepted, user_b_accepted)
+                   VALUES ($1, $2, CURRENT_DATE, 'active', TRUE, TRUE) RETURNING id""",
+                m_id, f_id
+            )
+            created_pairs.append((m_id, f_id, row['id']))
+
+        # 2-bosqich: burji mos suhbatdosh topilmagan (hali navbatda qolgan)
+        # foydalanuvchilarni burjidan qat'i nazar juftlaymiz - hech kim
+        # abadiy kutib qolmasligi kerak.
+        for zodiac_ok, score, m_id, f_id in candidates:
+            if zodiac_ok:
+                continue
             if m_id in used or f_id in used:
                 continue
             used.add(m_id)
