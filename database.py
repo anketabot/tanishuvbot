@@ -106,6 +106,11 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'uz'
         """)
 
+        # ===== KO'RINISH REJIMI (kunduzgi/tungi) =====
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS theme TEXT DEFAULT 'light'
+        """)
+
         # ===== REGION / DAVLAT MAYDONI =====
         await conn.execute("""
             ALTER TABLE users ADD COLUMN IF NOT EXISTS region TEXT
@@ -692,6 +697,50 @@ async def set_user_language(telegram_id, language):
         return True
     except Exception as e:
         print(f"Error setting language: {e}")
+        return False
+    finally:
+        await release_db(conn)
+
+
+# ========== KO'RINISH REJIMI (KUNDUZGI/TUNGI) ==========
+async def get_user_theme(telegram_id):
+    """Foydalanuvchining tanlagan ko'rinish rejimini olish ('light' yoki 'dark')."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT theme FROM users WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row and row['theme'] in ('light', 'dark'):
+            return row['theme']
+        return 'light'  # default - hozirgi kunduzgi ko'rinish
+    finally:
+        await release_db(conn)
+
+
+async def set_user_theme(telegram_id, theme):
+    """Foydalanuvchining ko'rinish rejimini saqlash."""
+    if theme not in ('light', 'dark'):
+        return False
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT telegram_id FROM users WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row:
+            await conn.execute(
+                "UPDATE users SET theme = $1 WHERE telegram_id = $2",
+                theme, telegram_id
+            )
+        else:
+            await conn.execute(
+                "INSERT INTO users (telegram_id, theme) VALUES ($1, $2)",
+                telegram_id, theme
+            )
+        return True
+    except Exception as e:
+        print(f"Error setting theme: {e}")
         return False
     finally:
         await release_db(conn)
