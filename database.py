@@ -323,6 +323,163 @@ async def init_db():
             )
         """)
 
+        # ========== SHIKOYAT (REPORT) VA BAN TIZIMI ==========
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS violation_count INTEGER DEFAULT 0
+        """)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_until TIMESTAMP
+        """)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT
+        """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS reports (
+                id BIGSERIAL PRIMARY KEY,
+                reporter_id BIGINT NOT NULL,
+                reported_id BIGINT NOT NULL,
+                category TEXT NOT NULL,
+                description TEXT,
+                source TEXT,
+                context_snapshot JSONB,
+                status TEXT DEFAULT 'pending',
+                ai_verdict JSONB,
+                created_at TIMESTAMP DEFAULT NOW(),
+                resolved_at TIMESTAMP
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports(reported_id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_id)
+        """)
+
+    finally:
+        await release_db(conn)
+
+
+# ========== SHIKOYAT / BAN FUNKSIYALARI ==========
+# Progressiv ban muddatlari (kun hisobida). Indeks = tasdiqlangan buzilish soni - 1.
+BAN_TIER_DAYS = [1, 3, 7, 30, 365]
+
+
+async def create_report(reporter_id, reported_id, category, description, source, context_snapshot):
+    """Yangi shikoyat yozuvini yaratadi va uning id'sini qaytaradi.
+    context_snapshot - masalan {'messages': [...], 'photo_base64': '...'} - AI tekshiruvi uchun
+    kerakli holatni saqlab qoladi (anonim chatda xabarlar keyinchalik o'chirilishi mumkin)."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("""
+            INSERT INTO reports (reporter_id, reported_id, category, description, source, context_snapshot)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            RETURNING id
+        """, reporter_id, reported_id, category, description, source,
+            json.dumps(context_snapshot or {}))
+        return row['id'] if row else None
+    finally:
+        await release_db(conn)
+
+
+async def set_report_result(report_id, status, ai_verdict=None):
+    """AI/admin tekshiruvidan so'ng shikoyat holatini yakunlaydi."""
+    conn = await get_db()
+    try:
+        await conn.execute("""
+            UPDATE reports
+            SET status = $1, ai_verdict = $2::jsonb, resolved_at = NOW()
+            WHERE id = $3
+        """, status, json.dumps(ai_verdict or {}), report_id)
+        return True
+    finally:
+        await release_db(conn)
+
+
+async def get_ban_info(telegram_id):
+    """Foydalanuvchining joriy ban holatini qaytaradi.
+    Muddati tugagan bo'lsa - avtomatik faollashtiriladi (banned_until tozalanadi)."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("""
+            SELECT violation_count, banned_until, ban_reason FROM users WHERE telegram_id = $1
+        """, telegram_id)
+        if not row:
+            return {'is_banned': False, 'banned_until': None, 'ban_reason': None, 'violation_count': 0}
+
+        banned_until = row['banned_until']
+        if banned_until and banned_until > datetime.utcnow():
+            return {
+                'is_banned': True,
+                'banned_until': banned_until.isoformat(),
+                'ban_reason': row['ban_reason'],
+                'violation_count': row['violation_count'] or 0,
+            }
+
+        # Muddat tugagan - tozalab qo'yamiz (lekin violation_count tarix uchun saqlanadi)
+        if banned_until:
+            await conn.execute(
+                "UPDATE users SET banned_until = NULL WHERE telegram_id = $1", telegram_id
+            )
+        return {
+            'is_banned': False,
+            'banned_until': None,
+            'ban_reason': None,
+            'violation_count': row['violation_count'] or 0,
+        }
+    finally:
+        await release_db(conn)
+
+
+async def register_violation_and_ban(telegram_id, category, severe=False):
+    """Tasdiqlangan buzilishni hisoblaydi va progressiv ban qo'llaydi.
+    `severe=True` bo'lsa (masalan kichik yoshdagilarga oid kontent), birinchi
+    holatdayoq eng qattiq (doimiy) chora qo'llanadi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT violation_count FROM users WHERE telegram_id = $1", telegram_id
+        )
+        current = (row['violation_count'] if row else 0) or 0
+        new_count = current + 1
+
+        if severe:
+            days = BAN_TIER_DAYS[-1]
+        else:
+            tier_index = min(new_count - 1, len(BAN_TIER_DAYS) - 1)
+            days = BAN_TIER_DAYS[tier_index]
+
+        banned_until = datetime.utcnow() + timedelta(days=days)
+        reason = f"{category} ({new_count}-marta tasdiqlangan buzilish)"
+
+        await conn.execute("""
+            UPDATE users
+            SET violation_count = $1, banned_until = $2, ban_reason = $3
+            WHERE telegram_id = $4
+        """, new_count, banned_until, reason, telegram_id)
+
+        return {
+            'violation_count': new_count,
+            'days': days,
+            'banned_until': banned_until.isoformat(),
+            'ban_reason': reason,
+        }
+    finally:
+        await release_db(conn)
+
+
+async def get_recent_reports_for_pair(reporter_id, reported_id, hours=24):
+    """Bir xil voqea uchun takroriy (dublikat) shikoyatlarni aniqlash uchun -
+    so'nggi N soat ichida shu juftlik bo'yicha allaqachon shikoyat borligini tekshiradi."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow("""
+            SELECT id FROM reports
+            WHERE reporter_id = $1 AND reported_id = $2
+              AND created_at > NOW() - ($3 || ' hours')::interval
+            ORDER BY created_at DESC LIMIT 1
+        """, reporter_id, reported_id, str(hours))
+        return row['id'] if row else None
     finally:
         await release_db(conn)
 
