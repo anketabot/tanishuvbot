@@ -3801,6 +3801,22 @@ async def admin_anon_run_match_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+async def admin_visibility_run_api(request):
+    """Admin uchun: haftalik ko'rinuvchanlik/TOP-10 hisobotini istalgan vaqtda
+    qo'lda ishga tushirish (test qilish yoki jadvalni majburan yangilash uchun)."""
+    try:
+        data = await request.json()
+        if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+
+        result = await db.recalculate_visibility_and_top10()
+        logger.info(f"Visibility (qo'lda ishga tushirildi): {result}")
+        return web.json_response({'success': True, **result})
+    except Exception as e:
+        logger.error(f"ADMIN VISIBILITY RUN API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def anon_match_scheduler():
     """Har kuni Toshkent vaqti bilan soat 21:00 da, bir marta, BARCHA faol
     foydalanuvchilarga anonim suhbat haqida eslatma yuboradi.
@@ -3841,6 +3857,31 @@ async def anon_match_scheduler():
         except Exception as e:
             logger.error(f"Anon match scheduler xatolik: {e}", exc_info=True)
         await asyncio.sleep(60)
+
+
+async def visibility_scheduler():
+    """Har hafta dushanba kuni (Toshkent vaqti, soat 00:05 dan keyin) bir marta
+    ishga tushib, xavfsizlik/reyting ko'rinuvchanlik tizimini yangilaydi:
+    - Haftalik TOP-10 (eng ko'p layk olganlar) ni topadi va ularni qidiruvda
+      ko'proq ko'rsatish uchun "boost" beradi.
+    - Ban tugagandan keyingi "nazorat davri"da (probation) bo'lgan
+      foydalanuvchilar TOP-10 ga ketma-ket 2 marta kirsa, ularning anketasi
+      qidiruvda hamma qatori (to'liq) ko'rinishga qaytariladi.
+    - TOP-10dan tushib qolganlarning boosti asta-sekin pasayadi.
+    """
+    logger.info("Ko'rinuvchanlik (visibility) haftalik scheduleri ishga tushdi")
+    while True:
+        try:
+            now = datetime.now(TASHKENT_TZ)
+            week_start = (now - timedelta(days=now.weekday())).strftime('%Y-%m-%d')
+            already_ran = await db.has_visibility_run_this_week(week_start)
+            if not already_ran and now.weekday() == 0 and now.hour >= 0:
+                await db.mark_visibility_run(week_start)
+                result = await db.recalculate_visibility_and_top10()
+                logger.info(f"Visibility scheduler ishladi: {result}")
+        except Exception as e:
+            logger.error(f"Visibility scheduler xatolik: {e}", exc_info=True)
+        await asyncio.sleep(3600)  # har soatda tekshiradi, lekin haftada bir marta ishlaydi
 
 
 async def main():
@@ -3898,9 +3939,11 @@ async def main():
     app.router.add_post('/api/anon/reveal', anon_reveal_api)
     app.router.add_post('/api/anon/disconnect', anon_disconnect_api)
     app.router.add_post('/api/admin/anon/run_match', admin_anon_run_match_api)  # istalgan vaqtda qo'lda ishga tushirish
+    app.router.add_post('/api/admin/visibility/run', admin_visibility_run_api)  # haftalik ko'rinuvchanlik/TOP-10 ni qo'lda ishga tushirish
 
     asyncio.create_task(anon_match_scheduler())
     asyncio.create_task(anon_queue_matcher())
+    asyncio.create_task(visibility_scheduler())
 
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
