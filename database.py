@@ -334,6 +334,34 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT
         """)
 
+        # ========== KO'RINUVCHANLIK (VISIBILITY) TIZIMI ==========
+        # Ban tugagandan keyingi "nazorat davri" va haftalik TOP-10 orqali
+        # reyting tiklanishi, shuningdek TOP-10 foydalanuvchilarni ko'proq
+        # ko'rsatish (boost) uchun ishlatiladi.
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS visibility_multiplier DOUBLE PRECISION DEFAULT 1.0
+        """)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS probation_until TIMESTAMP
+        """)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_top10_count INTEGER DEFAULT 0
+        """)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS last_top10_week TEXT
+        """)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS is_boosted BOOLEAN DEFAULT FALSE
+        """)
+        # Haftalik visibility/top10 hisoblash faqat bir marta ishlashini
+        # ta'minlash uchun (anon_match_runs bilan bir xil naqsh)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS visibility_runs (
+                week_start TEXT PRIMARY KEY,
+                run_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS reports (
                 id BIGSERIAL PRIMARY KEY,
@@ -382,6 +410,19 @@ async def init_db():
 # Progressiv ban muddatlari (kun hisobida). Indeks = tasdiqlangan buzilish soni - 1.
 BAN_TIER_DAYS = [1, 3, 7, 30, 365]
 
+# ========== KO'RINUVCHANLIK (VISIBILITY) SOZLAMALARI ==========
+# Ban tugagandan keyin necha kun "nazorat davri" (probation) davom etadi.
+PROBATION_DAYS = 14
+# Nazorat davrida qidiruvda ko'rinish og'irligi (1.0 = oddiy, kichikroq = kamroq ko'rinadi).
+PROBATION_VISIBILITY_MULTIPLIER = 0.3
+# Nazorat davrida haftalik TOP-10 ga necha marta kirsa, to'liq ko'rinish tiklanadi.
+TOP10_GRADUATION_COUNT = 2
+# TOP-10 (haftalik eng ko'p layk olganlar) foydalanuvchilari uchun qidiruvda
+# ko'proq ko'rsatilish (boost) og'irligi.
+TOP10_BOOST_MULTIPLIER = 1.7
+# Oddiy (jarimasiz, boostsiz) foydalanuvchi og'irligi.
+DEFAULT_VISIBILITY_MULTIPLIER = 1.0
+
 
 async def create_report(reporter_id, reported_id, category, description, source, context_snapshot):
     """Yangi shikoyat yozuvini yaratadi va uning id'sini qaytaradi.
@@ -416,7 +457,9 @@ async def set_report_result(report_id, status, ai_verdict=None):
 
 async def get_ban_info(telegram_id):
     """Foydalanuvchining joriy ban holatini qaytaradi.
-    Muddati tugagan bo'lsa - avtomatik faollashtiriladi (banned_until tozalanadi)."""
+    Muddati tugagan bo'lsa - avtomatik faollashtiriladi (banned_until tozalanadi)
+    va foydalanuvchi uchun "nazorat davri" (probation) boshlanadi - shu davrda
+    anketasi qidiruv natijalarida kamroq ko'rsatiladi (visibility_multiplier pasaytiriladi)."""
     conn = await get_db()
     try:
         row = await conn.fetchrow("""
@@ -435,10 +478,17 @@ async def get_ban_info(telegram_id):
             }
 
         # Muddat tugagan - tozalab qo'yamiz (lekin violation_count tarix uchun saqlanadi)
+        # va "nazorat davri"ni ishga tushiramiz (agar hali boshlanmagan bo'lsa)
         if banned_until:
-            await conn.execute(
-                "UPDATE users SET banned_until = NULL WHERE telegram_id = $1", telegram_id
-            )
+            await conn.execute("""
+                UPDATE users
+                SET banned_until = NULL,
+                    probation_until = COALESCE(probation_until, NOW() + ($1 || ' days')::interval),
+                    visibility_multiplier = LEAST(COALESCE(visibility_multiplier, 1.0), $2),
+                    weekly_top10_count = 0,
+                    last_top10_week = NULL
+                WHERE telegram_id = $3
+            """, str(PROBATION_DAYS), PROBATION_VISIBILITY_MULTIPLIER, telegram_id)
         return {
             'is_banned': False,
             'banned_until': None,
@@ -482,6 +532,107 @@ async def register_violation_and_ban(telegram_id, category, severe=False):
             'banned_until': banned_until.isoformat(),
             'ban_reason': reason,
         }
+    finally:
+        await release_db(conn)
+
+
+async def recalculate_visibility_and_top10():
+    """Haftalik ishga tushiriladigan funksiya (scheduler orqali):
+    1) Shu haftaning TOP-10 (eng ko'p layk olgan) foydalanuvchilarini topadi.
+    2) Ular uchun visibility_multiplier'ni oshiradi (boost) - qidiruvda ko'proq
+       ko'rinishi uchun.
+    3) Agar TOP-10dagi foydalanuvchi "nazorat davri"da (probation) bo'lsa,
+       weekly_top10_count'ni oshiradi; TOP10_GRADUATION_COUNT marta kirgach
+       nazorat davri butunlay bekor qilinadi (visibility_multiplier = 1.0).
+    4) TOP-10dan tushib qolgan, lekin oldin boost qilingan foydalanuvchilarning
+       boostini asta-sekin (keskin emas) pasaytiradi.
+    5) Muddati tugagan probation'larni ham tozalaydi.
+    Bir xil haftada ikki marta ishga tushsa ham xato hisobga olinmasligi uchun
+    `last_top10_week` ustunidan foydalaniladi.
+    """
+    conn = await get_db()
+    try:
+        week_start = (datetime.utcnow() - timedelta(days=datetime.utcnow().weekday())).strftime('%Y-%m-%d')
+
+        # 1) Shu haftaning TOP-10 (layk soni bo'yicha) foydalanuvchilari
+        top10_rows = await conn.fetch("""
+            SELECT u.telegram_id,
+                   COUNT(l.id) AS like_count
+            FROM users u
+            LEFT JOIN likes l ON l.to_user = u.telegram_id
+                AND l.created_at >= date_trunc('week', NOW())
+            WHERE u.is_active = TRUE
+            GROUP BY u.telegram_id
+            ORDER BY like_count DESC
+            LIMIT 10
+        """)
+        top10_ids = [r['telegram_id'] for r in top10_rows if r['like_count'] and r['like_count'] > 0]
+
+        # 2) va 3) TOP-10dagilarni yangilash
+        if top10_ids:
+            rows = await conn.fetch("""
+                SELECT telegram_id, probation_until, weekly_top10_count, last_top10_week
+                FROM users WHERE telegram_id = ANY($1::bigint[])
+            """, top10_ids)
+            for row in rows:
+                tid = row['telegram_id']
+                in_probation = row['probation_until'] and row['probation_until'] > datetime.utcnow()
+                already_counted_this_week = row['last_top10_week'] == week_start
+
+                if in_probation:
+                    new_count = (row['weekly_top10_count'] or 0)
+                    if not already_counted_this_week:
+                        new_count += 1
+
+                    if new_count >= TOP10_GRADUATION_COUNT:
+                        # Nazorat davridan "bitirdi" - reytingi hamma qatori tiklanadi
+                        await conn.execute("""
+                            UPDATE users
+                            SET probation_until = NULL,
+                                visibility_multiplier = $1,
+                                weekly_top10_count = $2,
+                                last_top10_week = $3
+                            WHERE telegram_id = $4
+                        """, TOP10_BOOST_MULTIPLIER, new_count, week_start, tid)
+                    else:
+                        await conn.execute("""
+                            UPDATE users
+                            SET weekly_top10_count = $1,
+                                last_top10_week = $2
+                            WHERE telegram_id = $3
+                        """, new_count, week_start, tid)
+                else:
+                    # Probationda emas - to'g'ridan-to'g'ri boost beriladi
+                    await conn.execute("""
+                        UPDATE users
+                        SET visibility_multiplier = $1,
+                            is_boosted = TRUE,
+                            last_top10_week = $2
+                        WHERE telegram_id = $3
+                    """, TOP10_BOOST_MULTIPLIER, week_start, tid)
+
+        # 4) TOP-10dan tushib qolganlarning boostini asta-sekin pasaytirish
+        # (keskin 1.0 ga tushirilmaydi - bir necha bosqichda pasayadi)
+        await conn.execute("""
+            UPDATE users
+            SET visibility_multiplier = GREATEST(1.0, visibility_multiplier - 0.3),
+                is_boosted = FALSE
+            WHERE is_boosted = TRUE
+              AND NOT (telegram_id = ANY($1::bigint[]))
+        """, top10_ids or [0])
+
+        # 5) Muddati tugagan probation'larni tozalash (agar TOP-10 orqali
+        # tiklanmagan bo'lsa ham, vaqt o'tishi bilan avtomatik tugaydi)
+        await conn.execute("""
+            UPDATE users
+            SET probation_until = NULL,
+                visibility_multiplier = 1.0,
+                weekly_top10_count = 0,
+                last_top10_week = NULL
+            WHERE probation_until IS NOT NULL AND probation_until <= NOW()
+        """)
+
+        return {'top10_ids': top10_ids, 'week_start': week_start}
     finally:
         await release_db(conn)
 
@@ -863,10 +1014,15 @@ async def search_users(telegram_id, filters):
 
         query = """
             SELECT telegram_id, username, full_name, gender, age, city, about,
-                   interests, zodiac, goals, photo_file_id, photo_base64
+                   interests, zodiac, goals, photo_file_id, photo_base64,
+                   COALESCE(visibility_multiplier, 1.0) AS visibility_multiplier,
+                   COALESCE(is_boosted, FALSE) AS is_boosted
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
+            -- Hozir ban qilingan foydalanuvchilar boshqalarning qidiruvida
+            -- umuman ko'rinmaydi (xavfsizlik talabi)
+            AND (banned_until IS NULL OR banned_until <= NOW())
             AND (
                 only_serious_men = FALSE OR only_serious_men IS NULL
                 OR (only_serious_men = TRUE AND $2 = TRUE)
@@ -930,7 +1086,12 @@ async def search_users(telegram_id, filters):
             params.append(f"%{filters['zodiac']}%")
             idx += 1
 
-        query += " ORDER BY RANDOM() LIMIT 50"
+        # Oddiy RANDOM() o'rniga vaznlangan tasodifiy tartiblash ishlatiladi:
+        # visibility_multiplier yuqori bo'lgan foydalanuvchi (masalan haftalik
+        # TOP-10 boosti) LIMIT 50 ichiga tushish ehtimoli yuqoriroq, past
+        # bo'lgan foydalanuvchi (masalan ban tugagandan keyingi nazorat davri)
+        # kamroq ehtimol bilan chiqadi.
+        query += " ORDER BY RANDOM() * COALESCE(visibility_multiplier, 1.0) DESC LIMIT 50"
         rows = await conn.fetch(query, *params)
 
         match_rows = await conn.fetch(
@@ -945,6 +1106,9 @@ async def search_users(telegram_id, filters):
         result = []
         for row in rows:
             user = dict(row)
+            # Ichki maydonni tashqariga chiqarmaymiz, faqat "boostlangan"
+            # belgisini frontendga qoldiramiz (masalan 🔥 TOP nishonchasi uchun)
+            user.pop('visibility_multiplier', None)
             user['can_write'] = user['telegram_id'] in match_ids
             # Burj moslik foizini hisoblash
             if searcher_zodiac_key and user.get('zodiac'):
@@ -1126,11 +1290,14 @@ async def search_users_by_zodiac(telegram_id, filters):
         searcher_is_serious = 'goal_jiddiy' in searcher_goals
 
         query = """
-            SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64
+            SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64,
+                   COALESCE(visibility_multiplier, 1.0) AS visibility_multiplier,
+                   COALESCE(is_boosted, FALSE) AS is_boosted
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
             AND zodiac IS NOT NULL
+            AND (banned_until IS NULL OR banned_until <= NOW())
             AND (
                 only_serious_men = FALSE OR only_serious_men IS NULL
                 OR (only_serious_men = TRUE AND $2 = TRUE)
@@ -1167,7 +1334,7 @@ async def search_users_by_zodiac(telegram_id, filters):
             params.append(f"%{filters['city']}%")
             idx += 1
 
-        query += " ORDER BY RANDOM() LIMIT 50"
+        query += " ORDER BY RANDOM() * COALESCE(visibility_multiplier, 1.0) DESC LIMIT 50"
         rows = await conn.fetch(query, *params)
 
         match_rows = await conn.fetch(
@@ -1182,6 +1349,7 @@ async def search_users_by_zodiac(telegram_id, filters):
         result = []
         for row in rows:
             user = dict(row)
+            user.pop('visibility_multiplier', None)
             user['can_write'] = user['telegram_id'] in match_ids
             result.append(user)
         return result
@@ -1225,6 +1393,7 @@ async def count_search_users(telegram_id, filters):
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
+            AND (banned_until IS NULL OR banned_until <= NOW())
             AND (
                 only_serious_men = FALSE OR only_serious_men IS NULL
                 OR (only_serious_men = TRUE AND $2 = TRUE)
@@ -1661,6 +1830,31 @@ async def mark_messages_read(match_id, reader_id):
         await conn.execute(
             "UPDATE chat_messages SET is_read = TRUE WHERE match_id = $1 AND sender_id != $2",
             match_id, reader_id
+        )
+    finally:
+        await release_db(conn)
+
+
+# ========== HAFTALIK KO'RINUVCHANLIK (VISIBILITY) SCHEDULERI ==========
+async def has_visibility_run_this_week(week_start):
+    """Berilgan hafta uchun visibility/top10 hisoboti allaqachon ishga
+    tushganmi, tekshiradi (bir haftada faqat bir marta ishlashi kerak)."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT week_start FROM visibility_runs WHERE week_start = $1", week_start
+        )
+        return row is not None
+    finally:
+        await release_db(conn)
+
+
+async def mark_visibility_run(week_start):
+    conn = await get_db()
+    try:
+        await conn.execute(
+            "INSERT INTO visibility_runs (week_start) VALUES ($1) ON CONFLICT DO NOTHING",
+            week_start
         )
     finally:
         await release_db(conn)
