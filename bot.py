@@ -31,6 +31,10 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+search_sessions = {}
+pending_message_targets = {}
 
 # ========== KO'P TILLI QO'LLAB-QUVVATLASH ==========
 SUPPORTED_LANGUAGES = {
@@ -67,6 +71,17 @@ T = {
         'btn_like': "❤️ Like",
         'btn_super_like': "⭐ Super Like",
         'btn_block': "🚫 Blok",
+        'btn_report': "🚩 Shikoyat",
+        'report_choose_category': "🚩 Shikoyat sababini tanlang:",
+        'report_cat_porn': "🔞 Pornografiya",
+        'report_cat_drugs': "💊 Narkotik",
+        'report_cat_violence': "⚔️ Zo'ravonlik",
+        'report_cat_fraud': "💰 Firibgarlik",
+        'report_cat_minor': "🚸 Kichik yoshdagi bola",
+        'report_cat_other': "❗ Boshqa",
+        'report_sent': "✅ Shikoyatingiz qabul qilindi. Tez orada tekshiriladi.",
+        'report_error': "❌ Shikoyat yuborishda xatolik yuz berdi.",
+        'ban_message': "🚫 Sizning akkauntingiz shikoyatlar asosida vaqtincha cheklangan.\n\n📌 Sabab: {reason}\n⏳ Cheklov tugash vaqti: {until}\n\nBu bot yoki Web App'dan foydalana olmaysiz.",
         'no_candidates': "😔 Hech qanday nomzod topilmadi.",
         'all_viewed': "✅ Barcha nomzodlar ko'rib chiqildi. Qayta qidirish uchun menyudan yana urinib ko'ring.",
         'search_counter': "\n\n🔎 {current}/{total} ta nomzoddan hozirgi",
@@ -665,9 +680,69 @@ def build_candidate_keyboard(lang, telegram_id):
         InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"search_message:{telegram_id}")
     )
     builder.row(
+        InlineKeyboardButton(text=t(lang, 'btn_report'), callback_data=f"report_pick:{telegram_id}")
+    )
+    builder.row(
         InlineKeyboardButton(text=t(lang, 'btn_back'), callback_data="show_main_menu")
     )
     return builder.as_markup()
+
+
+def build_report_category_keyboard(reported_id):
+    """Shikoyat toifasini tanlash klaviaturasi."""
+    builder = InlineKeyboardBuilder()
+    for cat_key, label_key in (
+        ('porn', 'report_cat_porn'),
+        ('drugs', 'report_cat_drugs'),
+        ('violence', 'report_cat_violence'),
+        ('fraud', 'report_cat_fraud'),
+        ('minor', 'report_cat_minor'),
+        ('other', 'report_cat_other'),
+    ):
+        builder.row(InlineKeyboardButton(
+            text=t('uz', label_key),
+            callback_data=f"report_cat:{reported_id}:{cat_key}"
+        ))
+    return builder.as_markup()
+
+
+@dp.callback_query(F.data.startswith("report_pick:"))
+async def report_pick_callback(callback: types.CallbackQuery):
+    reported_id = int(callback.data.split(":", 1)[1])
+    lang = await get_user_lang(callback.from_user.id)
+    await callback.answer()
+    await callback.message.answer(
+        t(lang, 'report_choose_category'),
+        reply_markup=build_report_category_keyboard(reported_id)
+    )
+
+
+@dp.callback_query(F.data.startswith("report_cat:"))
+async def report_category_callback(callback: types.CallbackQuery):
+    _, reported_id_str, category = callback.data.split(":", 2)
+    reported_id = int(reported_id_str)
+    reporter_id = callback.from_user.id
+    lang = await get_user_lang(reporter_id)
+
+    if reporter_id == reported_id:
+        await callback.answer()
+        return
+
+    existing = await db.get_recent_reports_for_pair(reporter_id, reported_id, hours=24)
+    if existing:
+        await callback.answer(t(lang, 'report_sent'), show_alert=True)
+        return
+
+    reported_user = await db.get_user(reported_id)
+    photo_base64 = reported_user.get('photo_base64') if reported_user else None
+
+    context_snapshot = {'messages': [], 'has_photo': bool(photo_base64)}
+    report_id = await db.create_report(reporter_id, reported_id, category, '', 'bot_search', context_snapshot)
+    asyncio.create_task(
+        process_report_background(report_id, reporter_id, reported_id, category, [], photo_base64)
+    )
+
+    await callback.answer(t(lang, 'report_sent'), show_alert=True)
 
 
 def build_sticker_picker_keyboard(lang, telegram_id):
@@ -958,10 +1033,37 @@ def escape_md(text):
     return text
 
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
-search_sessions = {}
-pending_message_targets = {}
+@dp.update.outer_middleware()
+async def ban_guard_middleware(handler, event, data):
+    """Banlangan foydalanuvchi botdan MUTLAQO foydalana olmasligi uchun barcha
+    update turlarini (shu jumladan /start) ushbu middleware'dan o'tkazamiz."""
+    telegram_user = None
+    if event.message:
+        telegram_user = event.message.from_user
+    elif event.callback_query:
+        telegram_user = event.callback_query.from_user
+
+    if telegram_user:
+        try:
+            ban_info, is_banned = await check_user_ban(telegram_user.id)
+        except Exception:
+            ban_info, is_banned = None, False
+
+        if is_banned:
+            try:
+                lang = await get_user_lang(telegram_user.id)
+                text = t(lang, 'ban_message',
+                         reason=ban_info.get('ban_reason'),
+                         until=ban_info.get('banned_until'))
+                if event.message:
+                    await event.message.answer(text)
+                elif event.callback_query:
+                    await event.callback_query.answer(text, show_alert=True)
+            except Exception:
+                pass
+            return  # handler ishga tushirilmaydi
+
+    return await handler(event, data)
 
 
 def _normalize_base64(photo_base64: str) -> str:
@@ -1087,6 +1189,162 @@ async def moderate_image_base64(photo_base64: str):
     except Exception as exc:
         logger.error("Moderation javobini tahlil qilishda xatolik: %s", exc, exc_info=True)
         return False, "moderation_parse_error"
+
+
+# Shikoyat toifalari: kategoriya kaliti -> (moderation kategoriyalari ro'yxati, og'ir-yengilligi)
+# severe=True bo'lgan toifalar birinchi tasdiqlangan holatdayoq eng qattiq (doimiy) chorani oladi.
+REPORT_CATEGORIES = {
+    'porn': {'moderation_keys': ['sexual', 'sexual/minors'], 'severe': False},
+    'minor': {'moderation_keys': ['sexual/minors'], 'severe': True},
+    'violence': {'moderation_keys': ['violence', 'violence/graphic'], 'severe': False},
+    'drugs': {'moderation_keys': [], 'severe': False},   # OpenAI moderation'da alohida narkotik toifasi yo'q -> GPT tekshiruviga tayanamiz
+    'fraud': {'moderation_keys': [], 'severe': False},
+    'other': {'moderation_keys': [], 'severe': False},
+}
+
+
+async def _gpt_classify_report(category: str, texts: list, has_image: bool):
+    """OpenAI Moderation API kontekstga bog'liq holatlarni (narkotik tarqatish,
+    tahdid, firibgarlik kabi mahalliy so'zlashuv/kod so'zlarda bo'lishi mumkin
+    bo'lgan holatlarni) to'liq qamrab olmasligi mumkin. Shu sabab qo'shimcha
+    bosqich sifatida GPT'dan qat'iy JSON formatida xulosa so'raymiz."""
+    if not OPENAI_API_KEY:
+        return None
+    if not texts and not has_image:
+        return None
+
+    joined_text = "\n".join(f"- {t}" for t in texts[-20:]) if texts else "(matn yo'q)"
+    prompt = (
+        "Sen ushbu tanishuv ilovasida moderatsiya yordamchisisan. Foydalanuvchi boshqa "
+        f"foydalanuvchini quyidagi toifada shikoyat qildi: '{category}'.\n"
+        "Quyida shu foydalanuvchining so'nggi xabarlari (o'zbek/rus tilida, "
+        "shevaga xos so'zlar yoki kod so'zlar bo'lishi mumkin):\n"
+        f"{joined_text}\n\n"
+        "Ushbu kontent haqiqatan ham ko'rsatilgan toifaga (pornografiya, narkotik "
+        "tarqatish/sotish, zo'ravonlik/tahdid, firibgarlik) mos keladimi, tahlil qil. "
+        "FAQAT quyidagi formatda JSON qaytar, boshqa hech qanday matn yozma:\n"
+        '{"violation": true yoki false, "confidence": 0-1 oralig\'ida son, "explanation": "qisqa izoh"}'
+    )
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                    "max_tokens": 200,
+                },
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.error("GPT report classify xatolik: %s %s", resp.status, body)
+                    return None
+                result = await resp.json()
+        content = result["choices"][0]["message"]["content"].strip()
+        content = content.strip("`")
+        if content.lower().startswith("json"):
+            content = content[4:].strip()
+        return json.loads(content)
+    except Exception as exc:
+        logger.error("GPT report classify parse xatolik: %s", exc, exc_info=True)
+        return None
+
+
+async def moderate_report_content(category: str, texts: list, image_base64: str = None):
+    """Shikoyat qilingan kontentni (matn + ixtiyoriy rasm) tekshiradi.
+    Qaytaradi: (confirmed: bool, verdict: dict) - verdict audit uchun saqlanadi."""
+    cat_conf = REPORT_CATEGORIES.get(category, REPORT_CATEGORIES['other'])
+    verdict = {'category': category, 'moderation': None, 'gpt': None}
+    confirmed = False
+
+    # 1-bosqich: OpenAI Moderation API (rasm va matn uchun)
+    if OPENAI_API_KEY:
+        inputs = []
+        for txt in (texts or [])[-20:]:
+            if txt:
+                inputs.append({"type": "text", "text": txt[:2000]})
+        if image_base64:
+            clean_b64 = _normalize_base64(image_base64)
+            if clean_b64:
+                inputs.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{clean_b64}"}})
+
+        if inputs:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        "https://api.openai.com/v1/moderations",
+                        headers={
+                            "Authorization": f"Bearer {OPENAI_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json={"model": "omni-moderation-latest", "input": inputs},
+                        timeout=aiohttp.ClientTimeout(total=20),
+                    ) as resp:
+                        if resp.status == 200:
+                            mod_result = await resp.json()
+                            verdict['moderation'] = mod_result
+                            for item in mod_result.get('results', []):
+                                cats = item.get('categories', {}) or {}
+                                if item.get('flagged') and cat_conf['moderation_keys']:
+                                    if any(cats.get(k) for k in cat_conf['moderation_keys']):
+                                        confirmed = True
+                        else:
+                            logger.error("Moderation API xatolik (report): %s", resp.status)
+            except Exception as exc:
+                logger.error("Moderation so'rovida xatolik (report): %s", exc, exc_info=True)
+
+    # 2-bosqich: kontekstga bog'liq toifalar (narkotik, firibgarlik, zo'ravonlik) uchun GPT tahlili
+    if not confirmed:
+        gpt_verdict = await _gpt_classify_report(category, texts or [], bool(image_base64))
+        verdict['gpt'] = gpt_verdict
+        if gpt_verdict and gpt_verdict.get('violation') and float(gpt_verdict.get('confidence', 0)) >= 0.6:
+            confirmed = True
+
+    return confirmed, verdict
+
+
+async def process_report_background(report_id, reporter_id, reported_id, category, texts, image_base64):
+    """Shikoyatni fon rejimida tekshiradi va tasdiqlansa progressiv ban qo'llaydi."""
+    try:
+        confirmed, verdict = await moderate_report_content(category, texts, image_base64)
+        status = 'confirmed' if confirmed else 'rejected'
+        await db.set_report_result(report_id, status, verdict)
+
+        if confirmed:
+            cat_conf = REPORT_CATEGORIES.get(category, REPORT_CATEGORIES['other'])
+            ban_info = await db.register_violation_and_ban(reported_id, category, severe=cat_conf['severe'])
+            try:
+                lang = await get_user_lang(reported_id)
+                until_str = ban_info['banned_until']
+                await bot.send_message(
+                    reported_id,
+                    t(lang, 'ban_message', reason=ban_info['ban_reason'], until=until_str)
+                )
+            except Exception:
+                pass
+            logger.info(
+                "Report #%s confirmed: user %s banned for %s days (category=%s)",
+                report_id, reported_id, ban_info['days'], category
+            )
+    except Exception as exc:
+        logger.error("Report tekshiruvida xatolik (report_id=%s): %s", report_id, exc, exc_info=True)
+
+
+async def check_user_ban(telegram_id):
+    """Foydalanuvchi banlanganmi tekshiradi. Ban bo'lsa (dict, True), aks holda (None, False)."""
+    try:
+        ban_info = await db.get_ban_info(telegram_id)
+        if ban_info.get('is_banned'):
+            return ban_info, True
+        return None, False
+    except Exception:
+        return None, False
 
 
 def get_photo_input(user):
@@ -2370,6 +2628,58 @@ async def cors_middleware(request, handler):
     return response
 
 
+# Ban tekshiruvidan chiqarib qo'yiladigan yo'llar:
+# /api/profile - ban ma'lumoti javob ichida (ban maydonida) qaytariladi, shu orqali
+#   frontend "siz banlangansiz" ekranini muddati bilan ko'rsata oladi (blank 403 emas).
+# /api/report - banlangan foydalanuvchi ham shikoyat topshira olishi kerak bo'lishi mumkin.
+BAN_CHECK_EXCLUDED_PATHS = {'/api/profile', '/api/report'}
+BAN_ID_FIELDS = ('telegram_id', 'blocker', 'from_user', 'sender_id', 'reporter_id')
+
+
+@web.middleware
+async def ban_check_middleware(request, handler):
+    """Barcha (deyarli) POST API so'rovlarida foydalanuvchi banlanganmi tekshiradi.
+    Banlangan bo'lsa - so'rov bajarilmasdan, ban ma'lumoti bilan 403 qaytariladi."""
+    if request.method != 'POST' or request.path in BAN_CHECK_EXCLUDED_PATHS or request.path.endswith('/webhook'):
+        return await handler(request)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return await handler(request)
+
+    if not isinstance(data, dict):
+        return await handler(request)
+
+    telegram_id = None
+    for field in BAN_ID_FIELDS:
+        val = data.get(field)
+        if val is not None:
+            try:
+                telegram_id = int(val)
+                break
+            except (TypeError, ValueError):
+                continue
+
+    if telegram_id is None:
+        return await handler(request)
+
+    try:
+        ban_info = await db.get_ban_info(telegram_id)
+    except Exception:
+        return await handler(request)
+
+    if ban_info.get('is_banned'):
+        return web.json_response({
+            'success': False,
+            'banned': True,
+            'banned_until': ban_info.get('banned_until'),
+            'ban_reason': ban_info.get('ban_reason'),
+        }, status=403)
+
+    return await handler(request)
+
+
 async def telegram_webhook_handler(request: web.Request):
     try:
         update_data = await request.json()
@@ -2455,10 +2765,20 @@ async def profile_api(request):
         if telegram_id is None:
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
 
-        user = await db.get_user(int(telegram_id))
+        telegram_id = int(telegram_id)
+        ban_info = await db.get_ban_info(telegram_id)
+        ban_payload = None
+        if ban_info.get('is_banned'):
+            ban_payload = {
+                'banned': True,
+                'banned_until': ban_info.get('banned_until'),
+                'ban_reason': ban_info.get('ban_reason'),
+            }
+
+        user = await db.get_user(telegram_id)
         if user:
-            return web.json_response({'success': True, 'user': serialize_user(user)})
-        return web.json_response({'success': True, 'user': None})
+            return web.json_response({'success': True, 'user': serialize_user(user), 'ban': ban_payload})
+        return web.json_response({'success': True, 'user': None, 'ban': ban_payload})
     except Exception as e:
         logger.error(f"PROFILE API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
@@ -3164,6 +3484,79 @@ async def block_api(request: web.Request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+async def report_api(request: web.Request):
+    """Web App / bot'dan kelgan shikoyatni qabul qiladi.
+    Body: { reporter_id, reported_id, category, description?, source, messages?: [str], photo_base64? }
+    Darhol 'qabul qilindi' javobi qaytariladi, AI tekshiruvi fon jarayonida ishlaydi."""
+    try:
+        data = await request.json()
+        try:
+            reporter_id = int(data.get('reporter_id'))
+        except (TypeError, ValueError):
+            return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+
+        category = str(data.get('category') or 'other')
+        if category not in REPORT_CATEGORIES:
+            category = 'other'
+        description = (data.get('description') or '')[:1000]
+        source = str(data.get('source') or 'unknown')  # search_profile / chat / anon_chat
+        messages = data.get('messages') or []
+        if not isinstance(messages, list):
+            messages = []
+        photo_base64 = data.get('photo_base64')
+        reported_id = None
+
+        # Anonim chatda reported_id client'ga ma'lum emas (anonimlikni saqlash uchun) -
+        # shuning uchun anon_match_id orqali serverda o'zimiz aniqlaymiz.
+        anon_match_id = data.get('anon_match_id')
+        if anon_match_id is not None:
+            try:
+                anon_match_id = int(anon_match_id)
+            except (TypeError, ValueError):
+                return web.json_response({'success': False, 'error': 'Invalid anon_match_id'}, status=400)
+            anon_row = await db.get_anon_match(anon_match_id)
+            if not anon_row or reporter_id not in (anon_row['user_a'], anon_row['user_b']):
+                return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+            reported_id = anon_row['user_b'] if reporter_id == anon_row['user_a'] else anon_row['user_a']
+            if not messages:
+                try:
+                    anon_msgs = await db.get_anon_messages(anon_match_id)
+                    messages = [m['message'] for m in anon_msgs if m.get('sender_id') == reported_id][-20:]
+                except Exception:
+                    messages = []
+        else:
+            try:
+                reported_id = int(data.get('reported_id'))
+            except (TypeError, ValueError):
+                return web.json_response({'success': False, 'error': 'Invalid user ids'}, status=400)
+
+        if reporter_id == reported_id:
+            return web.json_response({'success': False, 'error': 'self_report_not_allowed'}, status=400)
+
+        # Dublikat himoyasi: shu juftlik bo'yicha so'nggi 24 soatda shikoyat bo'lsa, qayta yubormaymiz
+        existing = await db.get_recent_reports_for_pair(reporter_id, reported_id, hours=24)
+        if existing:
+            return web.json_response({'success': True, 'already_reported': True})
+
+        # Agar rasm berilmagan bo'lsa, reported foydalanuvchining profil rasmini olamiz
+        if not photo_base64:
+            reported_user = await db.get_user(reported_id)
+            if reported_user:
+                photo_base64 = reported_user.get('photo_base64')
+
+        context_snapshot = {'messages': messages[-20:], 'has_photo': bool(photo_base64)}
+        report_id = await db.create_report(reporter_id, reported_id, category, description, source, context_snapshot)
+
+        asyncio.create_task(
+            process_report_background(report_id, reporter_id, reported_id, category, messages, photo_base64)
+        )
+
+        return web.json_response({'success': True, 'report_id': report_id})
+    except Exception as e:
+        logger.error(f"REPORT API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 # ========== TUNGI ANONIM CHAT (API) ==========
 TASHKENT_TZ = timezone(timedelta(hours=5))  # Asia/Tashkent (DST yo'q)
 
@@ -3456,6 +3849,7 @@ async def main():
     logger.info("Bot ishga tushdi...")
     app = web.Application()
     app.middlewares.append(cors_middleware)
+    app.middlewares.append(ban_check_middleware)
 
     app.router.add_post('/api/search', search_api)
     app.router.add_post('/api/search/count', search_count_api)
@@ -3493,6 +3887,7 @@ async def main():
 
     # Shikoyat va blok
     app.router.add_post('/api/block', block_api)
+    app.router.add_post('/api/report', report_api)
 
     # Tungi anonim chat
     app.router.add_post('/api/anon/status', anon_status_api)
