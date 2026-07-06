@@ -3257,6 +3257,29 @@ async def user_language_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+async def user_theme_api(request):
+    """Foydalanuvchining ko'rinish rejimini (kunduzgi/tungi) olish/o'zgartirish"""
+    try:
+        data = await request.json()
+        telegram_id = data.get('telegram_id')
+        if not telegram_id:
+            return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
+
+        # Agar theme berilgan bo'lsa, o'zgartirish
+        new_theme = data.get('theme')
+        if new_theme:
+            if new_theme not in ('light', 'dark'):
+                return web.json_response({'success': False, 'error': 'Invalid theme'}, status=400)
+            await db.set_user_theme(int(telegram_id), new_theme)
+
+        # Joriy rejimni qaytarish
+        theme = await db.get_user_theme(int(telegram_id))
+        return web.json_response({'success': True, 'theme': theme})
+    except Exception as e:
+        logger.error(f"THEME API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 # ========== LIMIT API ENDPOINTS ==========
 async def limit_status_api(request):
     try:
@@ -3917,6 +3940,7 @@ async def main():
 
     # Language route
     app.router.add_post('/api/language', user_language_api)
+    app.router.add_post('/api/theme', user_theme_api)
 
     # Stats / Leaderboard
     app.router.add_post('/api/stats/leaderboard', leaderboard_api)
