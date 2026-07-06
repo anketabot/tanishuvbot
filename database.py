@@ -339,15 +339,33 @@ async def init_db():
                 id BIGSERIAL PRIMARY KEY,
                 reporter_id BIGINT NOT NULL,
                 reported_id BIGINT NOT NULL,
-                category TEXT NOT NULL,
-                description TEXT,
-                source TEXT,
-                context_snapshot JSONB,
-                status TEXT DEFAULT 'pending',
-                ai_verdict JSONB,
-                created_at TIMESTAMP DEFAULT NOW(),
-                resolved_at TIMESTAMP
+                category TEXT NOT NULL
             )
+        """)
+        # Jadval avvalroq (masalan yarim muvaffaqiyatli deploy tufayli) boshqa
+        # ustunlar bilan yaratilgan bo'lishi mumkin - shu sabab har bir ustunni
+        # alohida ALTER TABLE orqali qo'shamiz (CREATE TABLE IF NOT EXISTS
+        # jadval mavjud bo'lsa ustunlarni qo'shib bermaydi).
+        await conn.execute("""
+            ALTER TABLE reports ADD COLUMN IF NOT EXISTS description TEXT
+        """)
+        await conn.execute("""
+            ALTER TABLE reports ADD COLUMN IF NOT EXISTS source TEXT
+        """)
+        await conn.execute("""
+            ALTER TABLE reports ADD COLUMN IF NOT EXISTS context_snapshot JSONB
+        """)
+        await conn.execute("""
+            ALTER TABLE reports ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'
+        """)
+        await conn.execute("""
+            ALTER TABLE reports ADD COLUMN IF NOT EXISTS ai_verdict JSONB
+        """)
+        await conn.execute("""
+            ALTER TABLE reports ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
+        """)
+        await conn.execute("""
+            ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP
         """)
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports(reported_id)
