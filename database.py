@@ -243,6 +243,19 @@ async def init_db():
             )
         """)
 
+        # Har bir foydalanuvchiga tegishli shaxsiy (unikal) guruh taklif havolasi.
+        # Statik/umumiy invite link orqali odam qo'shilsa, Telegram bizga "kim taklif qildi"
+        # degan ma'lumotni bermaydi (chat_member update'da from_user = qo'shilayotgan
+        # foydalanuvchining o'zi bo'lib qoladi). Shu sababli har bir foydalanuvchi uchun
+        # alohida invite_link yaratib, o'sha link orqali kim qo'shilganini aniqlaymiz.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_group_invite_links (
+                telegram_id BIGINT PRIMARY KEY,
+                invite_link TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
         # Pending xabarlar — match bo'lmasa ham yuborilgan xabarlar
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS pending_messages (
@@ -2481,6 +2494,48 @@ async def record_group_invite(inviter_id, invited_id):
         return True, "Guruhga odam qo'shildi."
     except Exception as e:
         return False, str(e)
+    finally:
+        await release_db(conn)
+
+
+async def get_user_invite_link(telegram_id):
+    """Foydalanuvchining bazada saqlangan shaxsiy invite linkini qaytaradi (bo'lmasa None)."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT invite_link FROM user_group_invite_links WHERE telegram_id = $1",
+            telegram_id
+        )
+        return row['invite_link'] if row else None
+    finally:
+        await release_db(conn)
+
+
+async def save_user_invite_link(telegram_id, invite_link):
+    """Foydalanuvchi uchun yaratilgan shaxsiy invite linkni bazaga saqlaydi."""
+    conn = await get_db()
+    try:
+        await conn.execute("""
+            INSERT INTO user_group_invite_links (telegram_id, invite_link)
+            VALUES ($1, $2)
+            ON CONFLICT (telegram_id) DO UPDATE SET invite_link = EXCLUDED.invite_link
+        """, telegram_id, invite_link)
+        return True
+    except Exception as e:
+        return False
+    finally:
+        await release_db(conn)
+
+
+async def get_inviter_by_link(invite_link):
+    """Berilgan invite_link kimga tegishli ekanini topadi (telegram_id yoki None)."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT telegram_id FROM user_group_invite_links WHERE invite_link = $1",
+            invite_link
+        )
+        return row['telegram_id'] if row else None
     finally:
         await release_db(conn)
 
