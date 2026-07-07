@@ -1840,7 +1840,21 @@ async def handle_new_group_member(update: types.ChatMemberUpdated):
 
     if old_member.status in ['left', 'kicked'] and new_member.status in ['member', 'administrator']:
         invited_id = new_member.user.id
-        inviter_id = update.from_user.id if update.from_user else None
+        inviter_id = None
+
+        # 1) Eng ishonchli usul: foydalanuvchi shaxsiy invite link orqali qo'shilgan bo'lsa,
+        #    Telegram bu linkni update.invite_link orqali beradi. Shu link kimga tegishli
+        #    ekanini bazadan topamiz - shunda odam link orqali o'zi qo'shilgan bo'lsa ham,
+        #    linkni ulashgan (taklif qilgan) kishi to'g'ri hisoblanadi.
+        if update.invite_link:
+            inviter_id = await db.get_inviter_by_link(update.invite_link.invite_link)
+
+        # 2) Agar invite_link bo'lmasa (masalan, biror admin/a'zo odamni Telegram ichida
+        #    to'g'ridan-to'g'ri guruhga qo'shgan bo'lsa), from_user - qo'shgan odam bo'ladi.
+        if not inviter_id and update.from_user:
+            candidate_id = update.from_user.id
+            if candidate_id != invited_id:
+                inviter_id = candidate_id
 
         if inviter_id and inviter_id != invited_id:
             user = await db.get_user(invited_id)
@@ -3388,6 +3402,39 @@ async def user_theme_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+# ========== SHAXSIY GURUH INVITE LINK ==========
+async def get_or_create_personal_invite_link(telegram_id: int) -> str:
+    """
+    Har bir foydalanuvchi uchun shaxsiy (unikal) guruh invite linkini qaytaradi.
+
+    Nega kerak: agar hammaga bitta umumiy GROUP_INVITE_LINK ko'rsatilsa, Telegram
+    chat_member update yuborganda "invite_link orqali kirgan foydalanuvchi"
+    hodisasida from_user maydoni odatda qo'shilayotgan foydalanuvchining o'zi bo'ladi,
+    "kim taklif qildi" degan ma'lumot yo'qoladi. Shaxsiy link orqali esa
+    ChatMemberUpdated.invite_link orqali qaysi link ishlatilganini bilamiz va
+    bazadan o'sha linkka tegishli foydalanuvchini topamiz.
+    """
+    if not GROUP_CHAT_ID:
+        return GROUP_INVITE_LINK or ""
+
+    existing = await db.get_user_invite_link(telegram_id)
+    if existing:
+        return existing
+
+    try:
+        link_obj = await bot.create_chat_invite_link(
+            chat_id=GROUP_CHAT_ID,
+            name=f"uid_{telegram_id}"
+        )
+        await db.save_user_invite_link(telegram_id, link_obj.invite_link)
+        return link_obj.invite_link
+    except Exception as e:
+        logger.error(f"Shaxsiy invite link yaratishda xatolik (bot guruhda admin va "
+                     f"'invite users via link' huquqiga ega ekanini tekshiring): {e}")
+        # Fallback - hech bo'lmasa umumiy link ko'rsatiladi, lekin bunda hisoblanmaydi
+        return GROUP_INVITE_LINK or ""
+
+
 # ========== LIMIT API ENDPOINTS ==========
 async def limit_status_api(request):
     try:
@@ -3414,8 +3461,11 @@ async def referral_status_api(request):
         invite_count = await db.get_group_invite_count(int(telegram_id))
         invitees = await db.get_group_invitees(int(telegram_id))
 
-        bot_info = await bot.get_me()
-        status['referral_link'] = GROUP_INVITE_LINK if GROUP_INVITE_LINK else f"https://t.me/{bot_info.username}"
+        personal_link = await get_or_create_personal_invite_link(int(telegram_id))
+        if not personal_link:
+            bot_info = await bot.get_me()
+            personal_link = f"https://t.me/{bot_info.username}"
+        status['referral_link'] = personal_link
         status['group_invite_count'] = invite_count
         status['group_invitees'] = invitees
 
