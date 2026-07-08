@@ -4128,7 +4128,11 @@ async def main():
         parsed = urlparse(webhook_url)
         webhook_path = parsed.path or '/telegram/webhook'
         app.router.add_post(webhook_path, telegram_webhook_handler)
-        await bot.set_webhook(webhook_url, drop_pending_updates=True)
+        await bot.set_webhook(
+            webhook_url,
+            drop_pending_updates=True,
+            allowed_updates=dp.resolve_used_update_types()
+        )
         logger.info(f"Webhook enabled on {webhook_url}")
     else:
         logger.warning('WEBHOOK_URL not set; falling back to polling.')
