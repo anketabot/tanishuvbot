@@ -1492,6 +1492,21 @@ async def language_keyboard():
     return builder.as_markup()
 
 
+def _is_profile_complete(user: dict) -> bool:
+    """Basic completeness check for a user's profile.
+    Require fullname, age and gender to be present. Adjust fields if needed.
+    """
+    if not user:
+        return False
+    if not user.get('full_name'):
+        return False
+    if not user.get('age'):
+        return False
+    if not user.get('gender'):
+        return False
+    return True
+
+
 async def get_or_create_group_invite_link(telegram_id):
     """
     Har bir foydalanuvchi uchun shaxsiy (unikal) guruh taklifnoma havolasini
@@ -2088,6 +2103,16 @@ async def start_search(message_or_callback, lang='uz'):
         send_func = message_or_callback.answer
         user_id = message_or_callback.from_user.id
 
+    # Require completed profile before allowing search
+    user = await db.get_user(user_id)
+    if not _is_profile_complete(user):
+        # Prompt to fill profile via Web App
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, 'fill_profile'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))]
+        ])
+        await send_func(t(lang, 'no_profile'), reply_markup=kb)
+        return
+
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text=t(lang, 'btn_male'), callback_data="search_gender:erkak"))
     builder.add(InlineKeyboardButton(text=t(lang, 'btn_female'), callback_data="search_gender:ayol"))
@@ -2187,6 +2212,9 @@ async def search_gender_callback(callback: types.CallbackQuery):
 
     # Qidirayotgan foydalanuvchining ma'lumotlarini olamiz
     me = await db.get_user(callback.from_user.id)
+    if not _is_profile_complete(me):
+        await callback.message.answer(t(lang, 'no_profile'))
+        return
     my_gender = me.get('gender') if me else None
     my_zodiac_key = normalize_zodiac_key(me.get('zodiac') or '') if me else None
 
@@ -2569,6 +2597,12 @@ async def web_app_data_handler(message: types.Message):
 
         elif action == "search":
             filters = data.get("filters", {})
+
+            # Ensure profile is complete before allowing WebApp-triggered search
+            profile_user = await db.get_user(message.from_user.id)
+            if not _is_profile_complete(profile_user):
+                await message.answer(t(lang, 'please_fill_profile'))
+                return
 
             zodiac_compat_list = filters.pop('zodiac_compat_list', None)
             if zodiac_compat_list:
