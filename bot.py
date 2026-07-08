@@ -4133,7 +4133,7 @@ async def main():
             drop_pending_updates=True,
             allowed_updates=dp.resolve_used_update_types()
         )
-        logger.info(f"Webhook enabled on {webhook_url}")
+        logger.info(f"Webhook enabled on {webhook_url}, allowed_updates={dp.resolve_used_update_types()}")
     else:
         logger.warning('WEBHOOK_URL not set; falling back to polling.')
 
