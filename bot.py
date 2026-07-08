@@ -1887,22 +1887,28 @@ async def handle_new_group_member(update: types.ChatMemberUpdated):
             inviter_id = update.from_user.id
 
         if inviter_id and inviter_id != invited_id:
-            user = await db.get_user(invited_id)
-            if user:
-                success, msg = await db.record_group_invite(inviter_id, invited_id)
-                if success:
-                    try:
-                        inviter_data = await db.get_user(inviter_id)
-                        if inviter_data:
-                            inviter_lang = await get_user_lang(inviter_id)
-                            await bot.send_message(
-                                inviter_id,
-                                t(inviter_lang, 'group_invite_success',
-                                  name=new_member.user.first_name, msg=msg),
-                                parse_mode="Markdown"
-                            )
-                    except Exception as e:
-                        logger.error(f"Inviter notify error: {e}")
+            # Eslatma: qo'shilgan odam botdan foydalangan/ro'yxatdan o'tgan bo'lishi
+            # SHART EMAS - guruhga kirgan istalgan Telegram foydalanuvchisi hisoblanadi.
+            # Ism/username Telegramning o'zidan olinadi, botda ro'yxatdan o'tmagan
+            # bo'lsa ham Web App'da ko'rinishi uchun saqlab qo'yamiz.
+            success, msg = await db.record_group_invite(
+                inviter_id, invited_id,
+                invited_full_name=new_member.user.full_name,
+                invited_username=new_member.user.username
+            )
+            if success:
+                try:
+                    inviter_data = await db.get_user(inviter_id)
+                    if inviter_data:
+                        inviter_lang = await get_user_lang(inviter_id)
+                        await bot.send_message(
+                            inviter_id,
+                            t(inviter_lang, 'group_invite_success',
+                              name=new_member.user.first_name, msg=msg),
+                            parse_mode="Markdown"
+                        )
+                except Exception as e:
+                    logger.error(f"Inviter notify error: {e}")
 
         await db.record_group_join(invited_id, inviter_id)
 
