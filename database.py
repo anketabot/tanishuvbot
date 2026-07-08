@@ -242,6 +242,15 @@ async def init_db():
                 UNIQUE(inviter_id, invited_id)
             )
         """)
+        # Botdan foydalanmagan/ro'yxatdan o'tmagan odamlar ham guruhga qo'shilgani
+        # uchun hisoblanadi va ko'rsatiladi - shu maqsadda ularning ismi/username'ini
+        # Telegram'dan kelgan holida saqlab qo'yamiz (agar eski jadval bo'lsa ham qo'shamiz).
+        await conn.execute("""
+            ALTER TABLE group_invites ADD COLUMN IF NOT EXISTS invited_full_name TEXT
+        """)
+        await conn.execute("""
+            ALTER TABLE group_invites ADD COLUMN IF NOT EXISTS invited_username TEXT
+        """)
 
         # Har bir foydalanuvchi uchun shaxsiy guruh taklifnoma havolasi.
         # Bu havola orqali kim qo'shilsa, aynan shu foydalanuvchi nomidan hisoblanadi
@@ -2471,9 +2480,12 @@ async def get_group_invitees(telegram_id):
     conn = await get_db()
     try:
         rows = await conn.fetch("""
-            SELECT u.telegram_id, u.full_name, u.username
+            SELECT
+                gi.invited_id AS telegram_id,
+                COALESCE(u.full_name, gi.invited_full_name) AS full_name,
+                COALESCE(u.username, gi.invited_username) AS username
             FROM group_invites gi
-            JOIN users u ON u.telegram_id = gi.invited_id
+            LEFT JOIN users u ON u.telegram_id = gi.invited_id
             WHERE gi.inviter_id = $1
             ORDER BY gi.invited_at DESC
         """, telegram_id)
@@ -2482,15 +2494,45 @@ async def get_group_invitees(telegram_id):
         await release_db(conn)
 
 
-async def record_group_invite(inviter_id, invited_id):
+async def record_group_invite(inviter_id, invited_id, invited_full_name=None, invited_username=None):
     conn = await get_db()
     try:
         await conn.execute("""
-            INSERT INTO group_invites (inviter_id, invited_id)
-            VALUES ($1, $2)
-            ON CONFLICT DO NOTHING
-        """, inviter_id, invited_id)
-        return True, "Guruhga odam qo'shildi."
+            INSERT INTO group_invites (inviter_id, invited_id, invited_full_name, invited_username)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (inviter_id, invited_id) DO NOTHING
+        """, inviter_id, invited_id, invited_full_name, invited_username)
+
+        # group_invites soni asosida limitsiz bonusni tekshiramiz va beramiz.
+        # Bu qism referral_rewards jadvalini (Web App/limit tekshiruvi shu yerdan
+        # o'qiydi) guruhga odam qo'shish tizimi bilan bog'laydi - avval bu ikkisi
+        # bir-biridan uzilgan edi va bonus hech qachon berilmasdi.
+        row = await conn.fetchrow(
+            "SELECT COUNT(*) as count FROM group_invites WHERE inviter_id = $1",
+            inviter_id
+        )
+        count = row['count'] if row else 0
+
+        until = None
+        if count == 5:
+            until = datetime.now() + timedelta(days=7)
+            msg = f"🎉 Tabriklaymiz! {count} ta odam qo'shdingiz. 1 hafta limitsiz foydalanish!"
+        elif count == 10:
+            until = datetime.now() + timedelta(days=30)
+            msg = f"🎉 Ajoyib! {count} ta odam qo'shdingiz. 1 oy limitsiz foydalanish!"
+        else:
+            msg = f"✅ {count} ta odam qo'shildi. 5 tagacha: 1 hafta, 10 tagacha: 1 oy limitsiz."
+
+        if until:
+            await conn.execute("""
+                INSERT INTO referral_rewards (telegram_id, unlimited_until, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (telegram_id) DO UPDATE SET
+                    unlimited_until = EXCLUDED.unlimited_until,
+                    updated_at = NOW()
+            """, inviter_id, until)
+
+        return True, msg
     except Exception as e:
         return False, str(e)
     finally:
