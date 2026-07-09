@@ -136,6 +136,11 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS only_serious_men BOOLEAN DEFAULT FALSE
         """)
 
+        # So'zlashuv tili (anketada foydalanuvchi tanlaydigan til: uz, ru, kk, ky, kaa, tg, en)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS spoken_language TEXT
+        """)
+
         # Likes
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS likes (
@@ -1056,8 +1061,8 @@ async def save_user(telegram_id, data):
         data = dict(data)
         data["gender"] = gender
         await conn.execute("""
-            INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, region, country, only_serious_men)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, region, country, only_serious_men, spoken_language)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             ON CONFLICT (telegram_id) DO UPDATE SET
                 username = EXCLUDED.username,
                 full_name = EXCLUDED.full_name,
@@ -1073,6 +1078,7 @@ async def save_user(telegram_id, data):
                 region = EXCLUDED.region,
                 country = EXCLUDED.country,
                 only_serious_men = EXCLUDED.only_serious_men,
+                spoken_language = EXCLUDED.spoken_language,
                 is_active = TRUE
         """,
             telegram_id,
@@ -1089,7 +1095,8 @@ async def save_user(telegram_id, data):
             data.get("photo_base64"),
             data.get("region"),
             data.get("country", "Oʻzbekiston"),
-            bool(data.get("only_serious_men", False))
+            bool(data.get("only_serious_men", False)),
+            data.get("spoken_language")
         )
         return True
     except Exception as e:
@@ -1138,7 +1145,7 @@ async def search_users(telegram_id, filters):
 
         query = """
             SELECT telegram_id, username, full_name, gender, age, city, about,
-                   interests, zodiac, goals, photo_file_id, photo_base64,
+                   interests, zodiac, goals, photo_file_id, photo_base64, spoken_language,
                    COALESCE(visibility_multiplier, 1.0) AS visibility_multiplier,
                    COALESCE(is_boosted, FALSE) AS is_boosted
             FROM users
@@ -1204,6 +1211,11 @@ async def search_users(telegram_id, filters):
         if filters.get("interests"):
             query += f" AND interests && ${idx}::text[]"
             params.append(filters["interests"])
+            idx += 1
+
+        if filters.get("spoken_language"):
+            query += f" AND spoken_language = ${idx}"
+            params.append(filters["spoken_language"])
             idx += 1
 
         if filters.get("name"):
@@ -1430,7 +1442,7 @@ async def search_users_by_zodiac(telegram_id, filters):
         searcher_is_serious = 'goal_jiddiy' in searcher_goals
 
         query = """
-            SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64,
+            SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, spoken_language,
                    COALESCE(visibility_multiplier, 1.0) AS visibility_multiplier,
                    COALESCE(is_boosted, FALSE) AS is_boosted
             FROM users
@@ -1478,6 +1490,11 @@ async def search_users_by_zodiac(telegram_id, filters):
         if filters.get('city'):
             query += f" AND city ILIKE ${idx}"
             params.append(f"%{filters['city']}%")
+            idx += 1
+
+        if filters.get('spoken_language'):
+            query += f" AND spoken_language = ${idx}"
+            params.append(filters['spoken_language'])
             idx += 1
 
         query += " ORDER BY RANDOM() * COALESCE(visibility_multiplier, 1.0) DESC LIMIT 50"
@@ -1599,6 +1616,11 @@ async def count_search_users(telegram_id, filters):
             params.append(filters["interests"])
             idx += 1
 
+        if filters.get("spoken_language"):
+            query += f" AND spoken_language = ${idx}"
+            params.append(filters["spoken_language"])
+            idx += 1
+
         if filters.get("zodiac"):
             query += f" AND zodiac ILIKE ${idx}"
             params.append(f"%{filters['zodiac']}%")
@@ -1684,7 +1706,7 @@ async def get_all_users():
     conn = await get_db()
     try:
         rows = await conn.fetch(
-            "SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, invited_friends, created_at "
+            "SELECT telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, spoken_language, invited_friends, created_at "
             "FROM users WHERE is_active = TRUE ORDER BY created_at DESC"
         )
         return [dict(row) for row in rows]
@@ -1751,7 +1773,7 @@ async def get_pending_likes(telegram_id):
     try:
         rows = await conn.fetch("""
             SELECT u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
-            u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64, l.created_at
+            u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64, u.spoken_language, l.created_at
             FROM likes l
             JOIN users u ON u.telegram_id = l.from_user
             WHERE l.to_user = $1
@@ -1826,8 +1848,7 @@ async def get_matches(telegram_id):
         rows = await conn.fetch("""
             SELECT m.id as match_id, m.created_at as matched_at,
             u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
-            u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64,
-            lm.message as last_message, lm.sender_id as last_sender_id, lm.created_at as last_message_at,
+            u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64, u.spoken_language, lm.message as last_message, lm.sender_id as last_sender_id, lm.created_at as last_message_at,
             COALESCE(uc.unread_count, 0) as unread_count
             FROM matches m
             JOIN users u ON (
