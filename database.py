@@ -1802,13 +1802,17 @@ async def reject_like(telegram_id, from_user):
 
 async def get_matches(telegram_id):
     """Foydalanuvchining barcha chat suhbatlarini olish.
-    Matches jadvalidagi + pending xabar yuborilgan suhbatlar."""
+    Matches jadvalidagi + pending xabar yuborilgan suhbatlar.
+    Har bir suhbat uchun oxirgi xabar va o'qilmagan xabarlar soni ham qaytariladi,
+    shu orqali Web App'da yangi xabar kelgani ko'rinib turadi."""
     conn = await get_db()
     try:
         rows = await conn.fetch("""
             SELECT m.id as match_id, m.created_at as matched_at,
             u.telegram_id, u.username, u.full_name, u.gender, u.age, u.city,
-            u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64
+            u.interests, u.zodiac, u.goals, u.photo_file_id, u.photo_base64,
+            lm.message as last_message, lm.sender_id as last_sender_id, lm.created_at as last_message_at,
+            COALESCE(uc.unread_count, 0) as unread_count
             FROM matches m
             JOIN users u ON (
                 CASE
@@ -1816,8 +1820,16 @@ async def get_matches(telegram_id):
                     ELSE m.user1 = u.telegram_id
                 END
             )
+            LEFT JOIN LATERAL (
+                SELECT message, sender_id, created_at FROM chat_messages
+                WHERE match_id = m.id ORDER BY created_at DESC LIMIT 1
+            ) lm ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) as unread_count FROM chat_messages
+                WHERE match_id = m.id AND sender_id != $1 AND is_read = FALSE
+            ) uc ON true
             WHERE m.user1 = $1 OR m.user2 = $1
-            ORDER BY m.created_at DESC
+            ORDER BY COALESCE(lm.created_at, m.created_at) DESC
         """, telegram_id)
         return [dict(r) for r in rows]
     finally:
