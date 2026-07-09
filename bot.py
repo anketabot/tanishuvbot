@@ -2212,6 +2212,10 @@ async def search_zodiac_compat_gender_callback(callback: types.CallbackQuery):
     if gender_value != "all":
         filters["gender"] = gender_value
 
+    # Xuddi yuqoridagi kabi - "faqat jiddiy niyatli erkaklar" filtri to'g'ri
+    # ishlashi uchun qidiruvchining maqsadlarini yuboramiz.
+    filters["searcher_goals"] = user.get("goals") or []
+
     users = await db.search_users_by_zodiac(callback.from_user.id, filters)
     if not users:
         await callback.message.answer(t(lang, 'no_zodiac_match'))
@@ -2247,6 +2251,12 @@ async def search_gender_callback(callback: types.CallbackQuery):
 
     # Burj moslik foizi uchun
     filters["searcher_zodiac_key"] = my_zodiac_key
+
+    # Qidiruvchining o'z maqsadlarini yuboramiz — aks holda "faqat jiddiy
+    # niyatli erkaklar ko'rsin" (only_serious_men) sozlamasi yoqilgan
+    # profillar hech qachon bot ichidan chiqmay qoladi (Web App'da esa
+    # bu maydon to'g'ri yuborilgani uchun chiqadi).
+    filters["searcher_goals"] = (me.get("goals") if me else None) or []
 
     users = await db.search_users(callback.from_user.id, filters)
     if not users:
