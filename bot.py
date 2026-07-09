@@ -60,6 +60,8 @@ T = {
         'btn_group': "👥 Guruhga qo'shilish",
         'btn_change_lang': "🌍 Tilni o'zgartirish",
         'no_profile': "❌ Siz hali anketa to'ldirmagansiz. Iltimos, avval anketangizni to'ldiring.",
+        'fill_profile': "Anketa to'ldirish",
+        'please_fill_profile': "Iltimos, avval anketa to'ldiring.",
         'search_who': "Qidirish uchun kimni izlayapsiz?\n\nErkak, ayol yoki barchasini tanlang.\nYoki burjingizga mos odamlarni qidiring! ⭐",
         'btn_male': "👨 Erkak",
         'btn_female': "👩 Ayol",
@@ -160,6 +162,8 @@ T = {
         'btn_group': "👥 Присоединиться к группе",
         'btn_change_lang': "🌍 Изменить язык",
         'no_profile': "❌ Вы ещё не заполнили анкету. Пожалуйста, сначала заполните профиль.",
+        'fill_profile': "Заполнить анкету",
+        'please_fill_profile': "Пожалуйста, сначала заполните анкету.",
         'search_who': "Кого вы ищете?\n\nВыберите: мужчина, женщина или все.\nИли найдите людей по знаку зодиака! ⭐",
         'btn_male': "👨 Мужчина",
         'btn_female': "👩 Женщина",
@@ -260,6 +264,8 @@ T = {
         'btn_group': "👥 Топқа қосылу",
         'btn_change_lang': "🌍 Тілді өзгерту",
         'no_profile': "❌ Сіз әлі анкета толтырмадыңыз. Алдымен профиліңізді толтырыңыз.",
+        'fill_profile': "Анкетаны толтырыңыз",
+        'please_fill_profile': "Алдымен анкетаны толтырыңыз.",
         'search_who': "Кім іздеп жатырсыз?\n\nЕр адам, әйел немесе бәрін таңдаңыз.\nНемесе жұлдызнама бойынша іздеңіз! ⭐",
         'btn_male': "👨 Ер адам",
         'btn_female': "👩 Әйел",
@@ -360,6 +366,8 @@ T = {
         'btn_group': "👥 Топко кошулуу",
         'btn_change_lang': "🌍 Тилди өзгөртүү",
         'no_profile': "❌ Сиз али анкета толтура элексиз. Алгач профилиңизди толтуруңуз.",
+        'fill_profile': "Анкетаны толтуруу",
+        'please_fill_profile': "Сураныч, алдымен анкетаңызды толтуруңуз.",
         'search_who': "Кимди издеп жатасыз?\n\nЭркек, аял же баарын тандаңыз.\nЖе жылдызнама боюнча издеңиз! ⭐",
         'btn_male': "👨 Эркек",
         'btn_female': "👩 Аял",
@@ -460,6 +468,8 @@ T = {
         'btn_group': "👥 Topqa qosılıw",
         'btn_change_lang': "🌍 Tildi ózgertiw",
         'no_profile': "❌ Siz áli anketa toldırmagansız. Aldıńızdan profilińizdi toldırıń.",
+        'fill_profile': "Anketa toldırıw",
+        'please_fill_profile': "Iltimas, aldın ala anketa toldırıń.",
         'search_who': "Kimdi izlep atırsız?\n\nEr adam, hayal yamasa bárin tańlań.\nYamasa juldıznama boyınsha izleni! ⭐",
         'btn_male': "👨 Er adam",
         'btn_female': "👩 Hayal",
@@ -560,6 +570,8 @@ T = {
         'btn_group': "👥 Ба гурӯҳ ҳамроҳ шудан",
         'btn_change_lang': "🌍 Забонро иваз кардан",
         'no_profile': "❌ Шумо ҳанӯз анкета пур накардаед. Лутфан аввал профилатонро пур кунед.",
+        'fill_profile': "Анкетаро пур кунед",
+        'please_fill_profile': "Лутфан, аввал анкетаатонро пур кунед.",
         'search_who': "Киро ҷустуҷӯ мекунед?\n\nМард, зан ё ҳамаро интихоб кунед.\nЁ аз рӯи бурҷ ҷустуҷӯ кунед! ⭐",
         'btn_male': "👨 Мард",
         'btn_female': "👩 Зан",
@@ -660,6 +672,8 @@ T = {
         'btn_group': "👥 Join the group",
         'btn_change_lang': "🌍 Change language",
         'no_profile': "❌ You haven't filled out a profile yet. Please fill out your profile first.",
+        'fill_profile': "Fill profile",
+        'please_fill_profile': "Please fill your profile first.",
         'search_who': "Who are you looking for?\n\nChoose male, female, or everyone.\nOr search for people matching your zodiac sign! ⭐",
         'btn_male': "👨 Male",
         'btn_female': "👩 Female",
@@ -2106,10 +2120,10 @@ async def start_search(message_or_callback, lang='uz'):
     # Require completed profile before allowing search
     user = await db.get_user(user_id)
     if not _is_profile_complete(user):
-        # Prompt to fill profile via Web App
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, 'fill_profile'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html"))]
-        ])
+        # Prompt to fill profile via Web App (use builder for consistent rendering)
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text=t(lang, 'fill_profile'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+        kb = builder.as_markup()
         await send_func(t(lang, 'no_profile'), reply_markup=kb)
         return
 
