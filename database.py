@@ -1882,13 +1882,15 @@ async def get_match_users(match_id):
 async def send_chat_message(match_id, sender_id, message):
     conn = await get_db()
     try:
-        await conn.execute(
-            "INSERT INTO chat_messages (match_id, sender_id, message) VALUES ($1, $2, $3)",
+        row = await conn.fetchrow(
+            """INSERT INTO chat_messages (match_id, sender_id, message)
+               VALUES ($1, $2, $3)
+               RETURNING id, match_id, sender_id, message, is_read, created_at""",
             match_id, sender_id, message
         )
-        return True
+        return dict(row) if row else None
     except Exception:
-        return False
+        return None
     finally:
         await release_db(conn)
 
@@ -2416,12 +2418,15 @@ async def send_anon_message(anon_match_id, sender_id, message):
             "SELECT status, user_a, user_b FROM anon_matches WHERE id = $1", anon_match_id
         )
         if not row or row['status'] != 'active' or sender_id not in (row['user_a'], row['user_b']):
-            return False
-        await conn.execute(
-            "INSERT INTO anon_chat_messages (anon_match_id, sender_id, message) VALUES ($1, $2, $3)",
+            return None
+        msg_row = await conn.fetchrow(
+            """INSERT INTO anon_chat_messages (anon_match_id, sender_id, message)
+               VALUES ($1, $2, $3)
+               RETURNING id, anon_match_id, sender_id, message, created_at""",
             anon_match_id, sender_id, message
         )
-        return True
+        partner_id = row['user_b'] if sender_id == row['user_a'] else row['user_a']
+        return {'message': dict(msg_row), 'partner_id': partner_id}
     finally:
         await release_db(conn)
 
