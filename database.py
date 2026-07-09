@@ -1392,6 +1392,7 @@ def normalize_zodiac_name(value):
 async def search_users_by_zodiac(telegram_id, filters):
     conn = await get_db()
     try:
+        searcher_zodiac_key = filters.pop('searcher_zodiac_key', None)
         blocked_ids = await conn.fetch(
             "SELECT blocked FROM blocks WHERE blocker = $1 UNION SELECT blocker FROM blocks WHERE blocked = $1",
             telegram_id
@@ -1496,6 +1497,12 @@ async def search_users_by_zodiac(telegram_id, filters):
             user = dict(row)
             user.pop('visibility_multiplier', None)
             user['can_write'] = user['telegram_id'] in match_ids
+            # Burj moslik foizini hisoblash
+            if searcher_zodiac_key and user.get('zodiac'):
+                cand_key = _normalize_zodiac_for_db(user['zodiac'])
+                user['zodiac_match_percent'] = _zodiac_compat_db(searcher_zodiac_key, cand_key)
+            else:
+                user['zodiac_match_percent'] = None
             result.append(user)
         return result
     finally:
