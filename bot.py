@@ -2798,6 +2798,8 @@ def serialize_user(user):
     clean_user = {}
     for key, value in user.items():
         clean_user[key] = serialize_value(value)
+    if 'gender' in clean_user:
+        clean_user['gender'] = db.normalize_gender(clean_user.get('gender'))
     # Eski yozuvlarda photo_base64 "data:image/...;base64," prefiksisiz
     # saqlangan bo'lishi mumkin (watermark bug tufayli) - bunday hollarda
     # <img src="..."> ishlamaydi, shuning uchun bu yerda tuzatib qo'yamiz.
