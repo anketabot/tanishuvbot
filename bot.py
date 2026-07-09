@@ -2743,9 +2743,15 @@ async def accept_like_callback(callback: types.CallbackQuery):
                     t(from_lang, 'like_accepted', name=to_data['full_name']),
                     parse_mode="Markdown"
                 )
+                # Muloqotni darhol boshlash uchun tugma qo'shamiz
+                write_builder = InlineKeyboardBuilder()
+                write_builder.row(
+                    InlineKeyboardButton(text=t(lang, 'btn_write'), callback_data=f"search_message:{from_user}")
+                )
                 await callback.message.edit_text(
                     t(lang, 'chat_started', name=from_data['full_name']),
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
+                    reply_markup=write_builder.as_markup()
                 )
             except Exception as e:
                 logger.error(f"Accept like notify error: {e}")
@@ -3228,10 +3234,16 @@ async def accept_like_api(request):
                         t(from_lang, 'like_accepted', name=to_data['full_name']),
                         parse_mode="Markdown"
                     )
+                    # Muloqotni darhol boshlash uchun tugma qo'shamiz
+                    write_builder = InlineKeyboardBuilder()
+                    write_builder.row(
+                        InlineKeyboardButton(text=t(to_lang, 'btn_write'), callback_data=f"search_message:{from_user}")
+                    )
                     await bot.send_message(
                         int(telegram_id),
                         t(to_lang, 'chat_started', name=from_data['full_name']),
-                        parse_mode="Markdown"
+                        parse_mode="Markdown",
+                        reply_markup=write_builder.as_markup()
                     )
                 except Exception as e:
                     logger.error(f"Notify error: {e}")
