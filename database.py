@@ -1853,6 +1853,20 @@ async def get_chat_messages(match_id, limit=50):
         await release_db(conn)
 
 
+async def get_match_users(match_id):
+    """Match ichidagi ikkala foydalanuvchi ID sini qaytaradi: (user1, user2) yoki None."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT user1, user2 FROM matches WHERE id = $1", match_id
+        )
+        if not row:
+            return None
+        return row['user1'], row['user2']
+    finally:
+        await release_db(conn)
+
+
 async def send_chat_message(match_id, sender_id, message):
     conn = await get_db()
     try:
