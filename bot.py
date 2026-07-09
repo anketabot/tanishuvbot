@@ -2819,6 +2819,75 @@ def serialize_user(user):
     return clean_user
 
 
+# ========== REAL TIME (WEBSOCKET) ==========
+# Chat bo'limida xabarlar va yangi-xabar belgisi (badge) darhol - 3-15 soniyalik
+# so'rovlarni kutmasdan - yangilanishi uchun WebSocket ulanishlar registri.
+# Bir foydalanuvchi bir nechta qurilma/tabda ochgan bo'lishi mumkin, shuning
+# uchun har bir telegram_id uchun ulanishlar to'plami (set) saqlanadi.
+ws_connections: dict = {}
+
+
+def ws_register(telegram_id, ws):
+    ws_connections.setdefault(int(telegram_id), set()).add(ws)
+
+
+def ws_unregister(telegram_id, ws):
+    conns = ws_connections.get(int(telegram_id))
+    if conns is not None:
+        conns.discard(ws)
+        if not conns:
+            ws_connections.pop(int(telegram_id), None)
+
+
+async def ws_push(telegram_id, payload: dict):
+    """Berilgan foydalanuvchining barcha ochiq WebSocket ulanishlariga real-time xabar yuboradi."""
+    conns = ws_connections.get(int(telegram_id))
+    if not conns:
+        return
+    data = json.dumps(payload, default=str)
+    dead = []
+    for ws in list(conns):
+        try:
+            if ws.closed:
+                dead.append(ws)
+                continue
+            await ws.send_str(data)
+        except Exception as e:
+            logger.warning(f"WS push xatolik ({telegram_id}): {e}")
+            dead.append(ws)
+    for ws in dead:
+        conns.discard(ws)
+
+
+async def chat_ws_handler(request):
+    """Web App'ning chat bo'limi uchun real-time WebSocket ulanishi.
+    Ulanish: /ws/chat?telegram_id=123456789"""
+    ws = web.WebSocketResponse(heartbeat=25)
+    await ws.prepare(request)
+
+    telegram_id = None
+    try:
+        telegram_id = int(request.query.get('telegram_id', 0))
+    except (TypeError, ValueError):
+        telegram_id = None
+
+    if not telegram_id or telegram_id <= 0:
+        await ws.close(code=4001, message=b'telegram_id required')
+        return ws
+
+    ws_register(telegram_id, ws)
+    try:
+        async for msg in ws:
+            if msg.type == web.WSMsgType.ERROR:
+                logger.warning(f"WS xatolik {telegram_id}: {ws.exception()}")
+            # Frontend'dan boshqa ma'lumot kutilmaydi - ulanish faqat
+            # push-xabarlarni real-time yetkazish uchun ochiq turadi.
+    finally:
+        ws_unregister(telegram_id, ws)
+
+    return ws
+
+
 @web.middleware
 async def cors_middleware(request, handler):
     if request.method == 'OPTIONS':
@@ -2833,6 +2902,8 @@ async def cors_middleware(request, handler):
             }
         )
     response = await handler(request)
+    if request.path.startswith('/ws/'):
+        return response
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
@@ -3219,29 +3290,48 @@ async def send_chat_api(request):
                 'message': 'Kunlik xabar yuborish limitingiz tugadi!'
             }, status=403)
 
-        success = await db.send_chat_message(int(match_id), int(sender_id), message)
+        message_row = await db.send_chat_message(int(match_id), int(sender_id), message)
+        success = message_row is not None
 
-        # Xabar saqlangandan so'ng, suhbatdoshga Telegram orqali bildirishnoma
-        # yuboramiz - avval bu qism yo'q edi, shuning uchun qabul qiluvchi
-        # yangi xabar kelganini bilmasdi.
         if success:
+            to_user = None
             try:
                 match_users = await db.get_match_users(int(match_id))
                 if match_users:
                     to_user = match_users[0] if match_users[1] == int(sender_id) else match_users[1]
-                    if to_user and int(to_user) != int(sender_id):
-                        sender_data = await db.get_user(int(sender_id))
-                        sender_name = (sender_data or {}).get('full_name', 'Foydalanuvchi')
-                        to_lang = await get_user_lang(int(to_user))
-                        # Agar rasm yuborilgan bo'lsa, base64 matnini emas, qisqa belgi ko'rsatamiz
-                        preview_text = '📷 Rasm' if message.startswith('[RASM]') else message[:100]
-                        await bot.send_message(
-                            int(to_user),
-                            t(to_lang, 'new_message', name=sender_name, text=preview_text)
-                        )
-            except Exception as notify_err:
-                logger.error(f"Chat message notify error: {notify_err}")
-                # Bildirishnoma yubormasdan xatolik bo'lsa ham, xabar chatda saqlanib qoladi
+                    if to_user is not None and int(to_user) == int(sender_id):
+                        to_user = None
+            except Exception as lookup_err:
+                logger.error(f"Chat match users lookup error: {lookup_err}")
+
+            # Xabarni suhbatdoshga (va agar u boshqa qurilmada ham ochiq bo'lsa,
+            # yuboruvchining o'ziga ham) WebSocket orqali REAL-TIME yetkazamiz -
+            # bu orqali chat ochiq bo'lsa xabar darhol, ro'yxatdagi belgi (badge)
+            # esa foydalanuvchi boshqa bo'limda bo'lsa ham shu zahoti yangilanadi.
+            ws_payload = {'type': 'chat_message', 'match_id': int(match_id), 'message': message_row}
+            recipient_online = False
+            if to_user is not None:
+                recipient_online = bool(ws_connections.get(int(to_user)))
+                await ws_push(int(to_user), ws_payload)
+            await ws_push(int(sender_id), ws_payload)
+
+            # Suhbatdosh hozir Web App'ni ochiq ushlab turmagan (ya'ni WebSocket
+            # ulanmagan) bo'lsa, Telegram orqali bildirishnoma yuboramiz - ochiq
+            # bo'lsa xabarni real-time o'zi ko'radi, qo'shimcha bildirishnoma shart emas.
+            if to_user is not None and not recipient_online:
+                try:
+                    sender_data = await db.get_user(int(sender_id))
+                    sender_name = (sender_data or {}).get('full_name', 'Foydalanuvchi')
+                    to_lang = await get_user_lang(int(to_user))
+                    # Agar rasm yuborilgan bo'lsa, base64 matnini emas, qisqa belgi ko'rsatamiz
+                    preview_text = '📷 Rasm' if message.startswith('[RASM]') else message[:100]
+                    await bot.send_message(
+                        int(to_user),
+                        t(to_lang, 'new_message', name=sender_name, text=preview_text)
+                    )
+                except Exception as notify_err:
+                    logger.error(f"Chat message notify error: {notify_err}")
+                    # Bildirishnoma yubormasdan xatolik bo'lsa ham, xabar chatda saqlanib qoladi
 
         return web.json_response({'success': success})
     except Exception as e:
@@ -3938,8 +4028,19 @@ async def anon_send_api(request):
                 'message': 'Kunlik xabar yuborish limitingiz tugadi!'
             }, status=403)
 
-        ok = await db.send_anon_message(anon_match_id, telegram_id, message)
-        return web.json_response({'success': ok})
+        result = await db.send_anon_message(anon_match_id, telegram_id, message)
+        success = result is not None
+
+        if success:
+            ws_payload = {
+                'type': 'anon_chat_message',
+                'anon_match_id': anon_match_id,
+                'message': result['message']
+            }
+            await ws_push(result['partner_id'], ws_payload)
+            await ws_push(telegram_id, ws_payload)
+
+        return web.json_response({'success': success})
     except Exception as e:
         logger.error(f"ANON SEND API xatolik: {e}", exc_info=True)
         return web.json_response({'success': False, 'error': str(e)}, status=500)
@@ -4215,6 +4316,9 @@ async def main():
     app.router.add_post('/api/anon/disconnect', anon_disconnect_api)
     app.router.add_post('/api/admin/anon/run_match', admin_anon_run_match_api)  # istalgan vaqtda qo'lda ishga tushirish
     app.router.add_post('/api/admin/visibility/run', admin_visibility_run_api)  # haftalik ko'rinuvchanlik/TOP-10 ni qo'lda ishga tushirish
+
+    # Real-time chat (WebSocket)
+    app.router.add_get('/ws/chat', chat_ws_handler)
 
     asyncio.create_task(anon_match_scheduler())
     asyncio.create_task(anon_queue_matcher())
