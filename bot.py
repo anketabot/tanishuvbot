@@ -3187,6 +3187,20 @@ async def chat_messages_api(request):
         return web.json_response({'success': False, 'error': str(e)}, status=500)
 
 
+async def chat_mark_read_api(request):
+    try:
+        data = await request.json()
+        match_id = data.get('match_id')
+        telegram_id = data.get('telegram_id')
+        if not match_id or not telegram_id:
+            return web.json_response({'success': False, 'error': 'Missing params'}, status=400)
+        await db.mark_messages_read(int(match_id), int(telegram_id))
+        return web.json_response({'success': True})
+    except Exception as e:
+        logger.error(f"CHAT MARK READ API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def send_chat_api(request):
     try:
         data = await request.json()
@@ -4165,6 +4179,7 @@ async def main():
     app.router.add_post('/api/likes/reject', reject_like_api)
     app.router.add_post('/api/matches', matches_api)
     app.router.add_post('/api/chat/messages', chat_messages_api)
+    app.router.add_post('/api/chat/mark_read', chat_mark_read_api)
     app.router.add_post('/api/chat/send', send_chat_api)
     app.router.add_post('/api/can_write', can_write_api)
     app.router.add_post('/api/initiate_chat', initiate_chat_api)
