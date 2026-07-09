@@ -3032,6 +3032,10 @@ async def search_api(request):
             except Exception:
                 pass
 
+        # Burj moslik foizini hisoblash uchun qidiruvchining burjini kalitga aylantiramiz
+        if searcher and searcher.get('zodiac'):
+            filters['searcher_zodiac_key'] = normalize_zodiac_key(searcher.get('zodiac'))
+
         zodiac_compat_list = filters.pop('zodiac_compat_list', None)
         if zodiac_compat_list:
             searcher_zodiac = searcher.get('zodiac') if searcher else None
