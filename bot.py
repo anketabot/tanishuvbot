@@ -3206,6 +3206,29 @@ async def send_chat_api(request):
             }, status=403)
 
         success = await db.send_chat_message(int(match_id), int(sender_id), message)
+
+        # Xabar saqlangandan so'ng, suhbatdoshga Telegram orqali bildirishnoma
+        # yuboramiz - avval bu qism yo'q edi, shuning uchun qabul qiluvchi
+        # yangi xabar kelganini bilmasdi.
+        if success:
+            try:
+                match_users = await db.get_match_users(int(match_id))
+                if match_users:
+                    to_user = match_users[0] if match_users[1] == int(sender_id) else match_users[1]
+                    if to_user and int(to_user) != int(sender_id):
+                        sender_data = await db.get_user(int(sender_id))
+                        sender_name = (sender_data or {}).get('full_name', 'Foydalanuvchi')
+                        to_lang = await get_user_lang(int(to_user))
+                        # Agar rasm yuborilgan bo'lsa, base64 matnini emas, qisqa belgi ko'rsatamiz
+                        preview_text = '📷 Rasm' if message.startswith('[RASM]') else message[:100]
+                        await bot.send_message(
+                            int(to_user),
+                            t(to_lang, 'new_message', name=sender_name, text=preview_text)
+                        )
+            except Exception as notify_err:
+                logger.error(f"Chat message notify error: {notify_err}")
+                # Bildirishnoma yubormasdan xatolik bo'lsa ham, xabar chatda saqlanib qoladi
+
         return web.json_response({'success': success})
     except Exception as e:
         logger.error(f"SEND CHAT API xatolik: {e}", exc_info=True)
