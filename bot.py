@@ -997,7 +997,7 @@ INTERESTS_LABELS = {
         'int_raqs': '💃 Raqs', 'int_sport': '⚽ Sport', 'int_yoga': '🧘 Yoga',
         'int_sayr': '🚶 Sayr', 'int_tennis': '🏓 Tennis', 'int_sayohat': '✈️ Sayohat',
         'int_plyaj': '🏖️ Plyaj', 'int_shopping': '🛍️ Shopping', 'int_moda': '👗 Moda',
-        'int_qahva': '☕ Qahva', 'int_blog': '✍️ Blog', 'int_dasturlash': '💻 Dasturlash',
+        'int_qahva': '☕ Qahva', 'int_vino': '🍷 Vino', 'int_pivo': '🍺 Pivo', 'int_blog': '✍️ Blog', 'int_dasturlash': '💻 Dasturlash',
         'int_shaxmat': '♟️ Shaxmat', 'int_rasm': '🎨 Rasm', 'int_tillar': "🗣️ Tillar",
     },
     'ru': {
@@ -1007,7 +1007,7 @@ INTERESTS_LABELS = {
         'int_raqs': '💃 Танцы', 'int_sport': '⚽ Спорт', 'int_yoga': '🧘 Йога',
         'int_sayr': '🚶 Прогулки', 'int_tennis': '🏓 Теннис', 'int_sayohat': '✈️ Путешествия',
         'int_plyaj': '🏖️ Пляж', 'int_shopping': '🛍️ Шоппинг', 'int_moda': '👗 Мода',
-        'int_qahva': '☕ Кофе', 'int_blog': '✍️ Блог', 'int_dasturlash': '💻 Программирование',
+        'int_qahva': '☕ Кофе', 'int_vino': '🍷 Вино', 'int_pivo': '🍺 Пиво', 'int_blog': '✍️ Блог', 'int_dasturlash': '💻 Программирование',
         'int_shaxmat': '♟️ Шахматы', 'int_rasm': '🎨 Рисование', 'int_tillar': '🗣️ Языки',
     },
     'en': {
@@ -1017,7 +1017,7 @@ INTERESTS_LABELS = {
         'int_raqs': '💃 Dancing', 'int_sport': '⚽ Sport', 'int_yoga': '🧘 Yoga',
         'int_sayr': '🚶 Walking', 'int_tennis': '🏓 Tennis', 'int_sayohat': '✈️ Travel',
         'int_plyaj': '🏖️ Beach', 'int_shopping': '🛍️ Shopping', 'int_moda': '👗 Fashion',
-        'int_qahva': '☕ Coffee', 'int_blog': '✍️ Blogging', 'int_dasturlash': '💻 Coding',
+        'int_qahva': '☕ Coffee', 'int_vino': '🍷 Wine', 'int_pivo': '🍺 Beer', 'int_blog': '✍️ Blogging', 'int_dasturlash': '💻 Coding',
         'int_shaxmat': '♟️ Chess', 'int_rasm': '🎨 Drawing', 'int_tillar': '🗣️ Languages',
     },
 }
@@ -2053,12 +2053,15 @@ async def show_profile_handler(message_or_callback):
         return
 
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
-    goals_text = escape_md(", ".join(user["goals"]) if user["goals"] else t(lang, 'not_specified'))
-    interests_text = escape_md(", ".join((user.get("interests") or [])[:5]) if user.get("interests") else t(lang, 'not_specified'))
+    goals_raw = user.get("goals") or []
+    goals_text = escape_md(", ".join(translate_goal(g, lang) for g in goals_raw) if goals_raw else t(lang, 'not_specified'))
+    interests_raw = (user.get("interests") or [])[:5]
+    interests_text = escape_md(", ".join(translate_interest(i, lang) for i in interests_raw) if interests_raw else t(lang, 'not_specified'))
     about_text = escape_md((user.get("about") or "").strip() or t(lang, 'not_specified'))
-    zodiac_text = escape_md(user.get("zodiac") or t(lang, 'not_specified'))
+    zodiac_raw = user.get("zodiac") or ''
+    zodiac_text = escape_md(get_zodiac_display(zodiac_raw, lang) if zodiac_raw else t(lang, 'not_specified'))
     full_name = escape_md(user.get('full_name') or 'Anonim')
-    city_text = escape_md(format_location_label(user.get('city')))
+    city_text = escape_md(format_location_label(user.get('city'), lang))
 
     limit_status = await db.get_limit_status(user_id)
     if limit_status['unlimited']:
@@ -2636,17 +2639,7 @@ async def web_app_data_handler(message: types.Message):
                 return
 
             for u in users[:5]:
-                gender_icon = "👨" if u["gender"] == "erkak" else "👩"
-                goals_text = ", ".join(u["goals"]) if u["goals"] else "—"
-                interests_text = ", ".join(u["interests"]) if u["interests"] else "—"
-
-                text = (
-                    f"{gender_icon} *{u['full_name']}*\n"
-                    f"🎂 {t(lang, 'age')}: {u['age']}\n"
-                    f"📍 {t(lang, 'city')}: {u['city']}\n"
-                    f"❤️ {t(lang, 'goals')}: {goals_text}\n"
-                    f"🎯 {t(lang, 'interests')}: {interests_text}"
-                )
+                text = format_user_card(u, lang)
 
                 builder = InlineKeyboardBuilder()
                 builder.add(InlineKeyboardButton(text=t(lang, 'btn_like'), callback_data=f"like_{u['telegram_id']}"))
