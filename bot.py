@@ -73,8 +73,8 @@ T = {
         'btn_like': "❤️ Like",
         'btn_super_like': "⭐ Super Like",
         'btn_block': "🚫 Blok",
-        'btn_report': "⚠️ Shikoyat",
-        'report_choose_category': "⚠️ Shikoyat sababini tanlang:",
+        'btn_report': "🚩 Shikoyat",
+        'report_choose_category': "🚩 Shikoyat sababini tanlang:",
         'report_cat_porn': "🔞 Pornografiya",
         'report_cat_drugs': "💊 Narkotik",
         'report_cat_violence': "⚔️ Zo'ravonlik",
@@ -119,6 +119,7 @@ T = {
         'city': "Shahar",
         'zodiac': "Burj",
         'about': "Men haqimda",
+        'spoken_language': "So'zlashuv tili",
         'goals': "Maqsad",
         'interests': "Qiziqishlar",
         'not_specified': "ko'rsatilmagan",
@@ -210,6 +211,7 @@ T = {
         'city': "Город",
         'zodiac': "Знак зодиака",
         'about': "О себе",
+        'spoken_language': "Язык общения",
         'goals': "Цели",
         'interests': "Интересы",
         'not_specified': "не указано",
@@ -240,8 +242,8 @@ T = {
         'anon_revealed_notify': "🎉 Отлично! Вы оба согласились открыть профили. Теперь вы можете продолжить общение в основном разделе Чат.",
         'anon_match_found_notify': "🌙 *Найден анонимный собеседник!*\n\nВам подобрали собеседника, и чат уже начался. Имя и фото пока скрыты.\n\nОткройте Web App и продолжите общение в разделе «Общение» 👇",
         'anon_evening_reminder_notify': "🌙 *Время для анонимного чата!*\n\nВы можете найти анонимного собеседника в любое время. Хотите попробовать прямо сейчас?\n\nОткройте Web App и нажмите «🔍 Найти собеседника» в разделе «Общение» 👇",
-        'btn_report': "⚠️ Жалоба",
-        'report_choose_category': "⚠️ Выберите причину жалобы:",
+        'btn_report': "🚩 Жалоба",
+        'report_choose_category': "🚩 Выберите причину жалобы:",
         'report_cat_porn': "🔞 Порнография",
         'report_cat_drugs': "💊 Наркотики",
         'report_cat_violence': "⚔️ Насилие",
@@ -312,6 +314,7 @@ T = {
         'city': "Қала",
         'zodiac': "Жұлдызнама",
         'about': "Мен туралы",
+        'spoken_language': "Сөйлесу тілі",
         'goals': "Мақсаттар",
         'interests': "Қызығушылықтар",
         'not_specified': "көрсетілмеген",
@@ -342,8 +345,8 @@ T = {
         'anon_revealed_notify': "🎉 Тамаша! Екеуіңіз де профильді ашуға келістіңіз. Енді негізгі Чат бөлімінде сөйлесе аласыз.",
         'anon_match_found_notify': "🌙 *Анонимді әңгімелесуші табылды!*\n\nСізге сай әңгімелесуші табылды және чат басталды. Аты-жөні мен суреті әзірге жасырын.\n\nWeb App-ты ашып, «Сөйлесу» бөлімінен чатты жалғастырыңыз 👇",
         'anon_evening_reminder_notify': "🌙 *Анонимді чат уақыты келді!*\n\nСіз кез келген уақытта анонимді әңгімелесуші таба аласыз. Қазір көріп көресіз бе?\n\nWeb App-ты ашып, «Сөйлесу» бөлімінде «🔍 Әңгімелесуші табу» түймесін басыңыз 👇",
-        'btn_report': "⚠️ Шағым",
-        'report_choose_category': "⚠️ Шағым себебін таңдаңыз:",
+        'btn_report': "🚩 Шағым",
+        'report_choose_category': "🚩 Шағым себебін таңдаңыз:",
         'report_cat_porn': "🔞 Порнография",
         'report_cat_drugs': "💊 Есірткі",
         'report_cat_violence': "⚔️ Зорлық-зомбылық",
@@ -414,6 +417,7 @@ T = {
         'city': "Шаар",
         'zodiac': "Жылдызнама",
         'about': "Мен жөнүндө",
+        'spoken_language': "Баарлашуу тили",
         'goals': "Максаттар",
         'interests': "Кызыгуулар",
         'not_specified': "көрсөтүлгөн эмес",
@@ -444,8 +448,8 @@ T = {
         'anon_revealed_notify': "🎉 Мыкты! Экөөңүз тең профильди ачууга макул болдуңуздар. Эми негизги Маек бөлүмүндө сүйлөшө аласыздар.",
         'anon_match_found_notify': "🌙 *Аноним маектеш табылды!*\n\nСизге ылайыктуу маектеш табылды жана маек башталды. Аты жана сүрөтү азырынча жашыруун.\n\nWeb App-ты ачып, «Баарлашуу» бөлүмүнөн маекти улантыңыз 👇",
         'anon_evening_reminder_notify': "🌙 *Аноним маек убактысы келди!*\n\nСиз каалаган убакта аноним маектеш таба аласыз. Азыр эле байкап көрөсүзбү?\n\nWeb App-ты ачып, «Баарлашуу» бөлүмүндө «🔍 Маектеш табуу» баскычын басыңыз 👇",
-        'btn_report': "⚠️ Даттануу",
-        'report_choose_category': "⚠️ Даттануу себебин тандаңыз:",
+        'btn_report': "🚩 Даттануу",
+        'report_choose_category': "🚩 Даттануу себебин тандаңыз:",
         'report_cat_porn': "🔞 Порнография",
         'report_cat_drugs': "💊 Баңги зат",
         'report_cat_violence': "⚔️ Зомбулук",
@@ -516,6 +520,7 @@ T = {
         'city': "Qala",
         'zodiac': "Juldıznama",
         'about': "Men haqqımda",
+        'spoken_language': "Sóylesiw tili",
         'goals': "Maqsetler",
         'interests': "Qızıǵıwshılıqlar",
         'not_specified': "kórsetilmegen",
@@ -546,8 +551,8 @@ T = {
         'anon_revealed_notify': "🎉 Ajayıp! Ekewiñiz de profildi ashıwǵa razı boldıńız. Endi tiykarǵı Sáwbet bóliminde sóylesiwdi dawam etesiz.",
         'anon_match_found_notify': "🌙 *Anonim sáwbetlesiwshi tabıldı!*\n\nSizge sáykes sáwbetlesiwshi tabıldı hám sáwbet baslandı. Atı hám súwreti házirshe jasırın.\n\nWeb App-tı ashıp, «Sóylesiw» bóliminen sáwbetti dawam etiń 👇",
         'anon_evening_reminder_notify': "🌙 *Anonim sáwbet waqtı keldi!*\n\nSiz qálegen waqıtta anonim sáwbetlesiwshi taba alasız. Házir sınap kóresizbe?\n\nWeb App-tı ashıp, «Sóylesiw» bóliminde «🔍 Sáwbetlesiwshi tabıw» knopkasın basıń 👇",
-        'btn_report': "⚠️ Shikayat",
-        'report_choose_category': "⚠️ Shikayat sebebin tańlań:",
+        'btn_report': "🚩 Shikayat",
+        'report_choose_category': "🚩 Shikayat sebebin tańlań:",
         'report_cat_porn': "🔞 Pornografiya",
         'report_cat_drugs': "💊 Nasha",
         'report_cat_violence': "⚔️ Zorlıq",
@@ -618,6 +623,7 @@ T = {
         'city': "Шаҳр",
         'zodiac': "Бурҷ",
         'about': "Дар бораи ман",
+        'spoken_language': "Забони муошират",
         'goals': "Мақсадҳо",
         'interests': "Шавқҳо",
         'not_specified': "нишон дода нашудааст",
@@ -648,8 +654,8 @@ T = {
         'anon_revealed_notify': "🎉 Аҷоиб! Ҳар дуятон ба кушодани профил розӣ шудед. Ҳоло метавонед дар бахши асосии Чат гуфтугӯро идома диҳед.",
         'anon_match_found_notify': "🌙 *Ҳамсуҳбати ношинос ёфт шуд!*\n\nБарои шумо ҳамсуҳбат ёфт шуд ва чат аллакай оғоз шудааст. Ном ва акс ҳанӯз пинҳон аст.\n\nWeb App-ро кушоед ва дар бахши «Гуфтугӯ» чатро идома диҳед 👇",
         'anon_evening_reminder_notify': "🌙 *Вақти чати ношинос расид!*\n\nШумо метавонед дар ҳар вақт ҳамсуҳбати ношинос пайдо кунед. Ҳоло озмоиш мекунед?\n\nWeb App-ро кушоед ва дар бахши «Гуфтугӯ» тугмаи «🔍 Ёфтани ҳамсуҳбат»-ро пахш кунед 👇",
-        'btn_report': "⚠️ Шикоят",
-        'report_choose_category': "⚠️ Сабаби шикоятро интихоб кунед:",
+        'btn_report': "🚩 Шикоят",
+        'report_choose_category': "🚩 Сабаби шикоятро интихоб кунед:",
         'report_cat_porn': "🔞 Порнография",
         'report_cat_drugs': "💊 Маводи мухаддир",
         'report_cat_violence': "⚔️ Зӯроварӣ",
@@ -720,6 +726,7 @@ T = {
         'city': "City",
         'zodiac': "Zodiac sign",
         'about': "About me",
+        'spoken_language': "Spoken language",
         'goals': "Goal",
         'interests': "Interests",
         'not_specified': "not specified",
@@ -750,8 +757,8 @@ T = {
         'anon_revealed_notify': "🎉 Great! You both agreed to reveal your profiles. You can now continue chatting in the main Chat section.",
         'anon_match_found_notify': "🌙 *Anonymous chat partner found!*\n\nWe found you a match and the chat has already started. Name and photo are still hidden.\n\nOpen the Web App and continue the chat in the \"Chat\" section 👇",
         'anon_evening_reminder_notify': "🌙 *Time for anonymous chat!*\n\nYou can find an anonymous chat partner anytime. Want to try now?\n\nOpen the Web App and tap \"🔍 Find a partner\" in the \"Chat\" section 👇",
-        'btn_report': "⚠️ Report",
-        'report_choose_category': "⚠️ Choose a reason for the report:",
+        'btn_report': "🚩 Report",
+        'report_choose_category': "🚩 Choose a reason for the report:",
         'report_cat_porn': "🔞 Pornography",
         'report_cat_drugs': "💊 Drugs",
         'report_cat_violence': "⚔️ Violence",
@@ -1806,6 +1813,16 @@ def format_location_label(city='', lang='uz'):
     return city_text
 
 
+def spoken_language_display(code):
+    """Foydalanuvchi tanlagan so'zlashuv tili kodini bayroq+nom ko'rinishida qaytaradi."""
+    if not code:
+        return ''
+    info = SUPPORTED_LANGUAGES.get(code)
+    if not info:
+        return ''
+    return f"{info['flag']} {info['name']}"
+
+
 def format_user_card(user, lang='uz', searcher_zodiac_key=None):
     gender_icon = "👨" if user.get("gender") == "erkak" else "👩"
 
@@ -1848,6 +1865,9 @@ def format_user_card(user, lang='uz', searcher_zodiac_key=None):
     ]
     if goals_text:
         lines.append(f"🎯 {t(lang, 'goals')}: {escape_md(goals_text)}")
+    spoken_lang_display = spoken_language_display(user.get('spoken_language'))
+    if spoken_lang_display:
+        lines.append(f"🗣 {t(lang, 'spoken_language')}: {escape_md(spoken_lang_display)}")
     if interests_text:
         lines.append(f"✨ {t(lang, 'interests')}: {escape_md(interests_text)}")
     if about_text:
@@ -2097,6 +2117,7 @@ async def show_profile_handler(message_or_callback):
     about_text = escape_md((user.get("about") or "").strip() or t(lang, 'not_specified'))
     zodiac_raw = user.get("zodiac") or ''
     zodiac_text = escape_md(get_zodiac_display(zodiac_raw, lang) if zodiac_raw else t(lang, 'not_specified'))
+    spoken_lang_text = escape_md(spoken_language_display(user.get('spoken_language')) or t(lang, 'not_specified'))
     full_name = escape_md(user.get('full_name') or 'Anonim')
     city_text = escape_md(format_location_label(user.get('city'), lang))
 
@@ -2114,6 +2135,7 @@ async def show_profile_handler(message_or_callback):
         f"🎂 {t(lang, 'age')}: {user['age']}\n"
         f"📍 {t(lang, 'city')}: {city_text}\n"
         f"⭐ {t(lang, 'zodiac')}: {zodiac_text}\n"
+        f"🗣 {t(lang, 'spoken_language')}: {spoken_lang_text}\n"
         f"📝 {t(lang, 'about')}: {about_text}\n"
         f"❤️ {t(lang, 'goals')}: {goals_text}\n"
         f"🎯 {t(lang, 'interests')}: {interests_text}"
