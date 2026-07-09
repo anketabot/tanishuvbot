@@ -1810,7 +1810,7 @@ def format_user_card(user, lang='uz', searcher_zodiac_key=None):
         f"⭐ {t(lang, 'zodiac')}: {escape_md(zodiac_display)}{compat_line}",
     ]
     if goals_text:
-        lines.append(f"🎯 {t(lang, 'goal')}: {escape_md(goals_text)}")
+        lines.append(f"🎯 {t(lang, 'goals')}: {escape_md(goals_text)}")
     if interests_text:
         lines.append(f"✨ {t(lang, 'interests')}: {escape_md(interests_text)}")
     if about_text:
