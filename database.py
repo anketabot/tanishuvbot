@@ -1335,10 +1335,19 @@ def _zodiac_is_good_match(z1, z2):
 
 
 # Markaziy Osiyo davlatlari
+# MUHIM: apostrof belgisining bir nechta varianti qo'shilgan (' U+0027, ʻ U+02BB,
+# ʼ U+02BC, ’ U+2019, ` backtick), chunki frontend (app.js) davlat nomlarini
+# "Oʻzbekiston" kabi maxsus apostrof (U+02BB) bilan yuboradi, oddiy apostrof (U+0027)
+# bilan emas. Shu farq sababli "= ANY(...)" solishtiruvi mos kelmay, O'zbekiston (va
+# boshqa apostrofli davlatlar) markaziy osiyo bo'yicha qidiruv natijalaridan tushib
+# qolgan edi.
 CENTRAL_ASIA_COUNTRIES = [
-    'O\'zbekiston', 'Ozbekiston', 'Uzbekistan', 'Ўзбекистон', 'Узбекистан',
-    'Qozog\'iston', 'Qozogiston', 'Kazakhstan', 'Казахстан', 'Қазақстан',
-    'Qirg\'iziston', 'Kyrgyzstan', 'Кыргызстан', 'Қырғызстан', 'Киргизстан',
+    "O'zbekiston", 'Oʻzbekiston', 'Oʼzbekiston', 'O’zbekiston', 'O`zbekiston',
+    'Ozbekiston', 'Uzbekistan', 'Ўзбекистон', 'Узбекистан',
+    "Qozog'iston", 'Qozogʻiston', 'Qozogʼiston', 'Qozog’iston', 'Qozog`iston',
+    'Qozogiston', 'Kazakhstan', 'Казахстан', 'Қазақстан',
+    "Qirg'iziston", 'Qirgʻiziston', 'Qirgʼiziston', 'Qirg’iziston', 'Qirg`iziston',
+    'Kyrgyzstan', 'Кыргызстан', 'Қырғызстан', 'Киргизстан',
     'Tojikiston', 'Tajikistan', 'Таджикистан', 'Тоҷикистон',
     'Turkmaniston', 'Turkmenistan', 'Туркменистан', 'Türkmenistan',
 ]
