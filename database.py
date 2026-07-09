@@ -823,7 +823,7 @@ async def is_female_user(telegram_id):
             "SELECT gender FROM users WHERE telegram_id = $1",
             telegram_id
         )
-        if row and row['gender'] == 'ayol':
+        if row and normalize_gender(row['gender']) == 'ayol':
             return True
         return False
     finally:
@@ -838,7 +838,7 @@ async def is_male_user(telegram_id):
             "SELECT gender FROM users WHERE telegram_id = $1",
             telegram_id
         )
-        if row and row['gender'] == 'erkak':
+        if row and normalize_gender(row['gender']) == 'erkak':
             return True
         return False
     finally:
@@ -1007,9 +1007,54 @@ async def get_referral_link(telegram_id, bot_username):
 
 
 # ========== USER FUNCTIONS ==========
+def normalize_gender(value):
+    """Turli jins nomlarini bot ichidagi yagona formatga o'zgartiradi."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    text = value.strip().lower()
+    if not text:
+        return None
+
+    normalized = text.replace(' ', '').replace('_', '').replace('-', '')
+    aliases = {
+        'erkak': 'erkak',
+        'male': 'erkak',
+        'man': 'erkak',
+        'boy': 'erkak',
+        'm': 'erkak',
+        'ayol': 'ayol',
+        'female': 'ayol',
+        'woman': 'ayol',
+        'girl': 'ayol',
+        'qiz': 'ayol',
+        'f': 'ayol',
+        'kiz': 'ayol',
+    }
+    return aliases.get(normalized) or aliases.get(text) or normalized
+
+
+def build_gender_filter(value):
+    normalized = normalize_gender(value)
+    return [normalized] if normalized else []
+
+
+def build_gender_match_values(value):
+    normalized = normalize_gender(value)
+    if normalized == 'erkak':
+        return ['erkak', 'male', 'man', 'boy', 'm']
+    if normalized == 'ayol':
+        return ['ayol', 'female', 'woman', 'girl', 'qiz', 'kiz', 'f']
+    return []
+
+
 async def save_user(telegram_id, data):
     conn = await get_db()
     try:
+        gender = normalize_gender(data.get("gender"))
+        data = dict(data)
+        data["gender"] = gender
         await conn.execute("""
             INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, region, country, only_serious_men)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
@@ -1059,7 +1104,9 @@ async def get_user(telegram_id):
     try:
         row = await conn.fetchrow("SELECT * FROM users WHERE telegram_id = $1", telegram_id)
         if row:
-            return dict(row)
+            user = dict(row)
+            user['gender'] = normalize_gender(user.get('gender'))
+            return user
         return None
     finally:
         await release_db(conn)
@@ -1081,6 +1128,13 @@ async def search_users(telegram_id, filters):
         searcher_zodiac_key = filters.pop('searcher_zodiac_key', None)
         # "Barchasi" tanlanganda xuddi jinsdagilarni chiqarmaslik
         exclude_gender = filters.pop('exclude_gender', None)
+        normalized_gender = build_gender_filter(filters.get('gender'))
+        if normalized_gender:
+            filters['gender'] = normalized_gender[0]
+        elif 'gender' in filters:
+            filters.pop('gender')
+        if exclude_gender:
+            exclude_gender = normalize_gender(exclude_gender)
 
         query = """
             SELECT telegram_id, username, full_name, gender, age, city, about,
@@ -1104,12 +1158,18 @@ async def search_users(telegram_id, filters):
         # Jins filtri: aniq gender= berilgan bo'lsa uni ishlatamiz
         # exclude_gender= berilgan bo'lsa (barchasi holati) xuddi jinsdagilarni chiqaramiz
         if filters.get("gender"):
-            query += f" AND gender ILIKE ${idx}"
-            params.append(filters["gender"])
-            idx += 1
+            gender_values = build_gender_match_values(filters["gender"])
+            if gender_values:
+                query += f" AND LOWER(COALESCE(gender, '')) = ANY(${idx}::text[])"
+                params.append(gender_values)
+                idx += 1
+            else:
+                query += f" AND gender ILIKE ${idx}"
+                params.append(filters["gender"])
+                idx += 1
         elif exclude_gender:
-            query += f" AND gender NOT ILIKE ${idx}"
-            params.append(exclude_gender)
+            query += f" AND LOWER(COALESCE(gender, '')) != ALL(${idx}::text[])"
+            params.append([exclude_gender])
             idx += 1
 
         if filters.get("age_from"):
@@ -1386,9 +1446,15 @@ async def search_users_by_zodiac(telegram_id, filters):
             query += " AND (" + " OR ".join(like_conditions) + ")"
 
         if filters.get('gender'):
-            query += f" AND gender = ${idx}"
-            params.append(filters['gender'])
-            idx += 1
+            gender_values = build_gender_match_values(filters['gender'])
+            if gender_values:
+                query += f" AND LOWER(COALESCE(gender, '')) = ANY(${idx}::text[])"
+                params.append(gender_values)
+                idx += 1
+            else:
+                query += f" AND gender ILIKE ${idx}"
+                params.append(filters['gender'])
+                idx += 1
 
         if filters.get('central_asia'):
             query += f" AND country = ANY(${idx}::text[])"
@@ -1473,9 +1539,15 @@ async def count_search_users(telegram_id, filters):
         idx = 3
 
         if filters.get("gender"):
-            query += f" AND gender ILIKE ${idx}"
-            params.append(filters["gender"])
-            idx += 1
+            gender_values = build_gender_match_values(filters["gender"])
+            if gender_values:
+                query += f" AND LOWER(COALESCE(gender, '')) = ANY(${idx}::text[])"
+                params.append(gender_values)
+                idx += 1
+            else:
+                query += f" AND gender ILIKE ${idx}"
+                params.append(filters["gender"])
+                idx += 1
 
         if filters.get("age_from"):
             query += f" AND age >= ${idx}"
