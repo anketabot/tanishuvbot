@@ -1126,6 +1126,44 @@ def zodiac_compat_percent(key1, key2):
     return pct if pct else 50  # mos kelmasa 50%
 
 
+# Burj moslik foizini tushunarli darajaga (emoji + so'z) aylantirish
+ZODIAC_COMPAT_TIERS = (
+    (90, 'excellent', '🔥'),
+    (80, 'good', '💚'),
+    (70, 'average', '🙂'),
+    (0,  'difficult', '⚡'),
+)
+
+ZODIAC_COMPAT_TIER_LABELS = {
+    'uz':  {'excellent': "Ajoyib moslik",       'good': "Yaxshi moslik",       'average': "O'rtacha moslik",   'difficult': "Murakkab moslik"},
+    'ru':  {'excellent': "Отличная совместимость", 'good': "Хорошая совместимость", 'average': "Средняя совместимость", 'difficult': "Сложная совместимость"},
+    'kk':  {'excellent': "Тамаша сәйкестік",     'good': "Жақсы сәйкестік",      'average': "Орташа сәйкестік",   'difficult': "Қиын сәйкестік"},
+    'ky':  {'excellent': "Мыкты шайкештик",      'good': "Жакшы шайкештик",      'average': "Орточо шайкештик",   'difficult': "Кыйын шайкештик"},
+    'kaa': {'excellent': "Ajayıp sáykeslik",     'good': "Jaqsı sáykeslik",      'average': "Ortasha sáykeslik",  'difficult': "Qıyın sáykeslik"},
+    'tg':  {'excellent': "Мувофиқати аъло",      'good': "Мувофиқати хуб",       'average': "Мувофиқати миёна",   'difficult': "Мувофиқати душвор"},
+    'en':  {'excellent': "Excellent match",      'good': "Good match",           'average': "Average match",      'difficult': "Difficult match"},
+}
+
+
+def get_zodiac_compat_tier(pct):
+    """Foizga qarab daraja kaliti va emojisini qaytaradi: (tier_key, emoji)."""
+    if pct is None:
+        return None, ''
+    for threshold, tier_key, emoji in ZODIAC_COMPAT_TIERS:
+        if pct >= threshold:
+            return tier_key, emoji
+    return 'difficult', '⚡'
+
+
+def get_zodiac_compat_tier_label(pct, lang='uz'):
+    """Foizga mos tushunarli so'zni (masalan, 'Yaxshi moslik') qaytaradi."""
+    tier_key, emoji = get_zodiac_compat_tier(pct)
+    if tier_key is None:
+        return '', ''
+    labels = ZODIAC_COMPAT_TIER_LABELS.get(lang, ZODIAC_COMPAT_TIER_LABELS['uz'])
+    return labels.get(tier_key, ''), emoji
+
+
 def get_zodiac_display(zodiac_raw, lang='uz'):
     """Burj nomini joriy tilda ko'rsatadi."""
     key = normalize_zodiac_key(zodiac_raw)
@@ -1775,15 +1813,14 @@ def format_user_card(user, lang='uz', searcher_zodiac_key=None):
     zodiac_raw = user.get("zodiac") or ''
     zodiac_display = get_zodiac_display(zodiac_raw, lang) if zodiac_raw else t(lang, 'not_specified')
 
-    # Burj moslik foizi
+    # Burj moslik foizi — foiz + tushunarli daraja (masalan, "87% — Yaxshi moslik 💚")
     compat_line = ''
     if searcher_zodiac_key and zodiac_raw:
         candidate_key = normalize_zodiac_key(zodiac_raw)
         pct = zodiac_compat_percent(searcher_zodiac_key, candidate_key)
         if pct is not None:
-            compat_label = {'uz': 'mos', 'ru': 'совместимость', 'en': 'match',
-                            'kk': 'сәйкес', 'ky': 'шайкеш', 'tg': 'мувофиқ'}.get(lang, 'mos')
-            compat_line = f"\n⭐ {pct}% {compat_label}"
+            tier_label, tier_emoji = get_zodiac_compat_tier_label(pct, lang)
+            compat_line = f"\n{tier_emoji} {pct}% — {tier_label}"
 
     # Qiziqishlar — key → chiroyli nom
     interests_raw = (user.get('interests') or [])[:5]
