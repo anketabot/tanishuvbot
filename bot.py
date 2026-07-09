@@ -47,6 +47,25 @@ SUPPORTED_LANGUAGES = {
     'en': {'name': 'English', 'flag': '🇬🇧'},
 }
 
+# Har bir interfeys tili uchun til nomlarining tarjimasi
+# (masalan, ruscha interfeysda "O'zbekcha" -> "Узбекский" bo'lib ko'rinadi)
+LANGUAGE_NAMES_TRANSLATED = {
+    'uz': {'uz': "O'zbekcha", 'ru': 'Ruscha', 'kk': 'Qozoqcha', 'ky': "Qirg'izcha",
+           'kaa': 'Qoraqalpoqcha', 'tg': 'Tojikcha', 'en': 'Inglizcha'},
+    'ru': {'uz': 'Узбекский', 'ru': 'Русский', 'kk': 'Казахский', 'ky': 'Киргизский',
+           'kaa': 'Каракалпакский', 'tg': 'Таджикский', 'en': 'Английский'},
+    'kk': {'uz': 'Өзбекше', 'ru': 'Орысша', 'kk': 'Қазақша', 'ky': 'Қырғызша',
+           'kaa': 'Қарақалпақша', 'tg': 'Тәжікше', 'en': 'Ағылшынша'},
+    'ky': {'uz': 'Өзбекче', 'ru': 'Орусча', 'kk': 'Казакча', 'ky': 'Кыргызча',
+           'kaa': 'Каракалпакча', 'tg': 'Тажикче', 'en': 'Англисче'},
+    'kaa': {'uz': 'Ózbekshe', 'ru': 'Rússha', 'kk': 'Qazaqsha', 'ky': 'Qırgızsha',
+            'kaa': 'Qaraqalpaqsha', 'tg': 'Tájikshe', 'en': 'Aǵılshınsha'},
+    'tg': {'uz': 'Узбекӣ', 'ru': 'Русӣ', 'kk': 'Қазоқӣ', 'ky': 'Қирғизӣ',
+           'kaa': 'Қароқалпоқӣ', 'tg': 'Тоҷикӣ', 'en': 'Англисӣ'},
+    'en': {'uz': 'Uzbek', 'ru': 'Russian', 'kk': 'Kazakh', 'ky': 'Kyrgyz',
+           'kaa': 'Karakalpak', 'tg': 'Tajik', 'en': 'English'},
+}
+
 # Barcha tarjimalar
 T = {
     'uz': {
@@ -1813,14 +1832,17 @@ def format_location_label(city='', lang='uz'):
     return city_text
 
 
-def spoken_language_display(code):
-    """Foydalanuvchi tanlagan so'zlashuv tili kodini bayroq+nom ko'rinishida qaytaradi."""
+def spoken_language_display(code, lang='uz'):
+    """Foydalanuvchi tanlagan so'zlashuv tili kodini bayroq+nom ko'rinishida qaytaradi.
+    Nom ko'ruvchi (viewer)ning joriy interfeys tiliga tarjima qilinadi."""
     if not code:
         return ''
     info = SUPPORTED_LANGUAGES.get(code)
     if not info:
         return ''
-    return f"{info['flag']} {info['name']}"
+    names = LANGUAGE_NAMES_TRANSLATED.get(lang) or LANGUAGE_NAMES_TRANSLATED['uz']
+    name = names.get(code, info['name'])
+    return f"{info['flag']} {name}"
 
 
 def format_user_card(user, lang='uz', searcher_zodiac_key=None):
@@ -1865,7 +1887,7 @@ def format_user_card(user, lang='uz', searcher_zodiac_key=None):
     ]
     if goals_text:
         lines.append(f"🎯 {t(lang, 'goals')}: {escape_md(goals_text)}")
-    spoken_lang_display = spoken_language_display(user.get('spoken_language'))
+    spoken_lang_display = spoken_language_display(user.get('spoken_language'), lang)
     if spoken_lang_display:
         lines.append(f"🗣 {t(lang, 'spoken_language')}: {escape_md(spoken_lang_display)}")
     if interests_text:
@@ -2117,7 +2139,7 @@ async def show_profile_handler(message_or_callback):
     about_text = escape_md((user.get("about") or "").strip() or t(lang, 'not_specified'))
     zodiac_raw = user.get("zodiac") or ''
     zodiac_text = escape_md(get_zodiac_display(zodiac_raw, lang) if zodiac_raw else t(lang, 'not_specified'))
-    spoken_lang_text = escape_md(spoken_language_display(user.get('spoken_language')) or t(lang, 'not_specified'))
+    spoken_lang_text = escape_md(spoken_language_display(user.get('spoken_language'), lang) or t(lang, 'not_specified'))
     full_name = escape_md(user.get('full_name') or 'Anonim')
     city_text = escape_md(format_location_label(user.get('city'), lang))
 
