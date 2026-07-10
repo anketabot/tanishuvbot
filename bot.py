@@ -3416,18 +3416,20 @@ async def send_chat_api(request):
             # ulanmagan) bo'lsa, Telegram orqali bildirishnoma yuboramiz - ochiq
             # bo'lsa xabarni real-time o'zi ko'radi, qo'shimcha bildirishnoma shart emas.
             if to_user is not None and not recipient_online:
-                try:
-                    sender_data = await db.get_user(int(sender_id))
-                    sender_name = (sender_data or {}).get('full_name', 'Foydalanuvchi')
-                    to_lang = await get_user_lang(int(to_user))
-                    # Agar rasm yuborilgan bo'lsa, base64 matnini emas, qisqa belgi ko'rsatamiz
-                    preview_text = '📷 Rasm' if message.startswith('[RASM]') else message[:100]
-                    await bot.send_message(
-                        int(to_user),
-                        t(to_lang, 'new_message', name=sender_name, text=preview_text)
-                    )
-                except Exception as notify_err:
-                    logger.error(f"Chat message notify error: {notify_err}")
+                    try:
+                        sender_data = await db.get_user(int(sender_id))
+                        sender_name = (sender_data or {}).get('full_name', 'Foydalanuvchi')
+                        to_lang = await get_user_lang(int(to_user))
+                        # Agar rasm yuborilgan bo'lsa, base64 matnini emas, qisqa belgi ko'rsatamiz
+                        preview_text = '📷 Rasm' if message.startswith('[RASM]') else message[:100]
+                        notify_text = t(to_lang, 'new_message', name=sender_name, text=preview_text)
+                        photo = get_photo_input(sender_data) if sender_data else None
+                        if photo:
+                            await bot.send_photo(int(to_user), photo, caption=notify_text)
+                        else:
+                            await bot.send_message(int(to_user), notify_text)
+                    except Exception as notify_err:
+                        logger.error(f"Chat message notify error: {notify_err}")
                     # Bildirishnoma yubormasdan xatolik bo'lsa ham, xabar chatda saqlanib qoladi
 
         return web.json_response({'success': success})
@@ -3528,17 +3530,21 @@ async def send_pending_message_api(request):
         if not sent:
             return web.json_response({'success': False, 'error': 'Xabar yuborilmadi'}, status=500)
 
-        try:
-            to_lang = await get_user_lang(to_user)
-            sender_name = from_user_data.get('full_name', 'Foydalanuvchi')
-            notify_msg = (
-                f"💬 *{sender_name}* sizga xabar yubordi:\n\n"
-                f"_{message}_\n\n"
-                f"Javob berish uchun Web App'dagi Chat bo'limini tekshiring."
-            )
-            await bot.send_message(int(to_user), notify_msg, parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Pending message send error: {e}")
+            try:
+                to_lang = await get_user_lang(to_user)
+                sender_name = from_user_data.get('full_name', 'Foydalanuvchi')
+                notify_msg = (
+                    f"💬 *{sender_name}* sizga xabar yubordi:\n\n"
+                    f"_{message}_\n\n"
+                    f"Javob berish uchun Web App'dagi Chat bo'limini tekshiring."
+                )
+                photo = get_photo_input(from_user_data)
+                if photo:
+                    await bot.send_photo(int(to_user), photo, caption=notify_msg, parse_mode="Markdown")
+                else:
+                    await bot.send_message(int(to_user), notify_msg, parse_mode="Markdown")
+            except Exception as e:
+                logger.error(f"Pending message send error: {e}")
             # Telegram xabarnomasi ketmasa ham, xabar chatda saqlanib qoldi
 
         return web.json_response({'success': True, 'match_id': match_id})
