@@ -136,9 +136,25 @@ async def init_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS only_serious_men BOOLEAN DEFAULT FALSE
         """)
 
-        # So'zlashuv tili (anketada foydalanuvchi tanlaydigan til: uz, ru, kk, ky, kaa, tg, en)
+        # So'zlashuv tili (anketada foydalanuvchi tanlaydigan til: uz, ru, kk, ky, kaa, tg, en).
+        # Endi foydalanuvchi bir nechta til tanlashi mumkin, shuning uchun ustun TEXT[] (massiv).
         await conn.execute("""
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS spoken_language TEXT
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS spoken_language TEXT[]
+        """)
+        # Eski bazalarda bu ustun oddiy TEXT bo'lib, bitta til saqlangan bo'lishi mumkin -
+        # shu holatni TEXT[] ga xavfsiz o'giramiz (mavjud qiymat 1 elementli massivga aylanadi).
+        await conn.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name = 'spoken_language' AND data_type <> 'ARRAY'
+                ) THEN
+                    ALTER TABLE users ALTER COLUMN spoken_language TYPE TEXT[] USING
+                        CASE WHEN spoken_language IS NULL OR spoken_language = '' THEN NULL
+                             ELSE ARRAY[spoken_language]::TEXT[] END;
+                END IF;
+            END $$;
         """)
 
         # Likes
@@ -1060,6 +1076,15 @@ async def save_user(telegram_id, data):
         gender = normalize_gender(data.get("gender"))
         data = dict(data)
         data["gender"] = gender
+        # spoken_language endi bir nechta til bo'lishi mumkin (TEXT[] ustun).
+        # Eski mijozlar hali bitta stringni yuborishi mumkin - shuni ham ro'yxatga aylantiramiz.
+        raw_lang = data.get("spoken_language")
+        if raw_lang is None:
+            data["spoken_language"] = None
+        elif isinstance(raw_lang, (list, tuple)):
+            data["spoken_language"] = [str(c) for c in raw_lang if c] or None
+        else:
+            data["spoken_language"] = [str(raw_lang)] if raw_lang else None
         await conn.execute("""
             INSERT INTO users (telegram_id, username, full_name, gender, age, city, about, interests, zodiac, goals, photo_file_id, photo_base64, region, country, only_serious_men, spoken_language)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -1214,8 +1239,12 @@ async def search_users(telegram_id, filters):
             idx += 1
 
         if filters.get("spoken_language"):
-            query += f" AND spoken_language = ${idx}"
-            params.append(filters["spoken_language"])
+            # Foydalanuvchi bir nechta til bilan gaplasha oladi - filtrda tanlangan
+            # tillardan istalganida mos keladigan foydalanuvchilarni topamiz (overlap).
+            sl = filters["spoken_language"]
+            sl_list = sl if isinstance(sl, (list, tuple)) else [sl]
+            query += f" AND spoken_language && ${idx}::text[]"
+            params.append(list(sl_list))
             idx += 1
 
         if filters.get("name"):
@@ -1493,8 +1522,12 @@ async def search_users_by_zodiac(telegram_id, filters):
             idx += 1
 
         if filters.get('spoken_language'):
-            query += f" AND spoken_language = ${idx}"
-            params.append(filters['spoken_language'])
+            # Foydalanuvchi bir nechta til bilan gaplasha oladi - filtrda tanlangan
+            # tillardan istalganida mos keladigan foydalanuvchilarni topamiz (overlap).
+            sl = filters['spoken_language']
+            sl_list = sl if isinstance(sl, (list, tuple)) else [sl]
+            query += f" AND spoken_language && ${idx}::text[]"
+            params.append(list(sl_list))
             idx += 1
 
         query += " ORDER BY RANDOM() * COALESCE(visibility_multiplier, 1.0) DESC LIMIT 50"
@@ -1617,8 +1650,12 @@ async def count_search_users(telegram_id, filters):
             idx += 1
 
         if filters.get("spoken_language"):
-            query += f" AND spoken_language = ${idx}"
-            params.append(filters["spoken_language"])
+            # Foydalanuvchi bir nechta til bilan gaplasha oladi - filtrda tanlangan
+            # tillardan istalganida mos keladigan foydalanuvchilarni topamiz (overlap).
+            sl = filters["spoken_language"]
+            sl_list = sl if isinstance(sl, (list, tuple)) else [sl]
+            query += f" AND spoken_language && ${idx}::text[]"
+            params.append(list(sl_list))
             idx += 1
 
         if filters.get("zodiac"):
