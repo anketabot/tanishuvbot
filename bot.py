@@ -1832,17 +1832,24 @@ def format_location_label(city='', lang='uz'):
     return city_text
 
 
-def spoken_language_display(code, lang='uz'):
-    """Foydalanuvchi tanlagan so'zlashuv tili kodini bayroq+nom ko'rinishida qaytaradi.
+def spoken_language_display(codes, lang='uz'):
+    """Foydalanuvchi tanlagan so'zlashuv til(lar)i kodini bayroq+nom ko'rinishida qaytaradi.
+    Endi bir nechta til bo'lishi mumkin (list); eski bitta til (string) bilan ham ishlaydi.
     Nom ko'ruvchi (viewer)ning joriy interfeys tiliga tarjima qilinadi."""
-    if not code:
+    if not codes:
         return ''
-    info = SUPPORTED_LANGUAGES.get(code)
-    if not info:
-        return ''
+    code_list = codes if isinstance(codes, (list, tuple)) else [codes]
     names = LANGUAGE_NAMES_TRANSLATED.get(lang) or LANGUAGE_NAMES_TRANSLATED['uz']
-    name = names.get(code, info['name'])
-    return f"{info['flag']} {name}"
+    parts = []
+    for code in code_list:
+        if not code:
+            continue
+        info = SUPPORTED_LANGUAGES.get(code)
+        if not info:
+            continue
+        name = names.get(code, info['name'])
+        parts.append(f"{info['flag']} {name}")
+    return ', '.join(parts)
 
 
 def format_user_card(user, lang='uz', searcher_zodiac_key=None):
