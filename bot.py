@@ -3298,7 +3298,11 @@ async def accept_like_api(request):
                     )
                 except Exception as e:
                     logger.error(f"Notify error: {e}")
-            return web.json_response({'success': True, 'match_id': match_id})
+            return web.json_response({
+                'success': True,
+                'match_id': match_id,
+                'from_user_profile': serialize_user(from_data) if from_data else None
+            })
         return web.json_response({'success': False, 'error': 'Like not found'}, status=404)
     except Exception as e:
         logger.error(f"ACCEPT LIKE API xatolik: {e}", exc_info=True)
@@ -3624,7 +3628,18 @@ async def like_send_api(request):
                     await bot.send_message(int(from_user), from_msg, parse_mode="Markdown")
                 except Exception as e:
                     logger.error(f"Match notify error: {e}")
-            return web.json_response({'success': True, 'match': True, 'match_id': match_id, 'super_like': super_like})
+            # MUHIM: frontend mutual-match bo'lganda chatni avtomatik ochadi va
+            # buning uchun hamkorning ismi/rasmini shu javobdan (to_user_profile)
+            # oladi. Bu maydon yo'q bo'lgani uchun chat ismsiz/rasmsiz ("rasm
+            # ko'rinmayapti") ochilib qolar edi - endi serialize_user orqali
+            # (photo_base64 uchun to'g'ri "data:image/..." prefiksi bilan) qo'shildi.
+            return web.json_response({
+                'success': True,
+                'match': True,
+                'match_id': match_id,
+                'super_like': super_like,
+                'to_user_profile': serialize_user(to_user_data) if to_user_data else None
+            })
         else:
             # Bir tomonlama like — qabul qiluvchiga bildirishnoma + Qabul/Rad tugmalari
             if to_user_data and from_user_data:
