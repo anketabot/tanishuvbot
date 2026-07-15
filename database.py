@@ -2805,3 +2805,272 @@ async def get_verification_status(telegram_id: int):
         return {'is_verified': False, 'verified_at': None}
     finally:
         await release_db(conn)
+
+# ========== ADMIN PANEL DATABASE FUNCTIONS ==========
+async def get_admin_user_messages(telegram_id):
+    """Admin uchun - foydalanuvchining barcha xabarlarini qaytaradi (regular + anonymous)."""
+    conn = await get_db()
+    try:
+        # Regular chat messages
+        regular_messages = await conn.fetch("""
+            SELECT 
+                m.id,
+                m.sender_id,
+                m.message,
+                m.created_at,
+                'regular' as message_type,
+                m.match_id,
+                m.is_read
+            FROM chat_messages m
+            WHERE m.sender_id = \ 
+               OR m.match_id IN (
+                   SELECT id FROM matches WHERE user1 = \ OR user2 = \
+               )
+            ORDER BY m.created_at DESC
+            LIMIT 1000
+        """, telegram_id)
+        
+        # Anonymous chat messages
+        anon_messages = await conn.fetch("""
+            SELECT 
+                acm.id,
+                acm.sender_id,
+                acm.message,
+                acm.created_at,
+                'anonymous' as message_type,
+                am.id as anon_match_id,
+                CASE WHEN am.user_a = \ THEN 'sent' ELSE 'received' END as direction,
+                CASE WHEN am.user_a = \ THEN am.user_b ELSE am.user_a END as other_user_id
+            FROM anon_chat_messages acm
+            JOIN anon_matches am ON acm.anon_match_id = am.id
+            WHERE am.user_a = \ OR am.user_b = \
+            ORDER BY acm.created_at DESC
+            LIMIT 1000
+        """, telegram_id)
+        
+        all_messages = []
+        
+        # Process regular messages
+        for msg in regular_messages:
+            match = await conn.fetchrow("SELECT user1, user2 FROM matches WHERE id = \\", msg['match_id'])
+            if match:
+                other_user_id = match['user2'] if match['user1'] == telegram_id else match['user1']
+                other_user = await conn.fetchrow(
+                    "SELECT full_name, username FROM users WHERE telegram_id = \\", 
+                    other_user_id
+                )
+                
+                all_messages.append({
+                    'id': msg['id'],
+                    'type': 'regular',
+                    'sender_id': msg['sender_id'],
+                    'message': msg['message'],
+                    'created_at': msg['created_at'].isoformat() if msg['created_at'] else None,
+                    'direction': 'sent' if msg['sender_id'] == telegram_id else 'received',
+                    'match_id': msg['match_id'],
+                    'other_user_id': other_user_id,
+                    'other_user_name': other_user['full_name'] if other_user else 'Unknown',
+                    'other_user_username': other_user['username'] if other_user else '',
+                    'is_read': msg['is_read']
+                })
+        
+        # Process anonymous messages
+        for msg in anon_messages:
+            all_messages.append({
+                'id': msg['id'],
+                'type': 'anonymous',
+                'sender_id': msg['sender_id'],
+                'message': msg['message'],
+                'created_at': msg['created_at'].isoformat() if msg['created_at'] else None,
+                'direction': msg['direction'],
+                'anon_match_id': msg['anon_match_id'],
+                'other_user_id': msg['other_user_id']
+            })
+        
+        all_messages.sort(key=lambda x: x['created_at'] or '', reverse=True)
+        
+        return all_messages
+        
+    finally:
+        await release_db(conn)
+
+
+async def get_admin_all_users_with_message_counts():
+    """Admin uchun - barcha foydalanuvchilar va ularning xabar/chat soni."""
+    conn = await get_db()
+    try:
+        users = await conn.fetch("""
+            SELECT 
+                u.telegram_id,
+                u.username,
+                u.full_name,
+                u.gender,
+                u.age,
+                u.city,
+                u.interests,
+                u.zodiac,
+                u.goals,
+                u.photo_file_id,
+                u.photo_base64,
+                u.created_at,
+                COALESCE((
+                    SELECT COUNT(DISTINCT match_id) FROM chat_messages 
+                    WHERE sender_id = u.telegram_id OR match_id IN (
+                        SELECT id FROM matches WHERE user1 = u.telegram_id OR user2 = u.telegram_id
+                    )
+                ), 0) as chat_count,
+                COALESCE((
+                    SELECT COUNT(*) FROM chat_messages 
+                    WHERE sender_id = u.telegram_id
+                ), 0) as messages_sent,
+                COALESCE((
+                    SELECT COUNT(DISTINCT anon_match_id) FROM anon_chat_messages
+                    WHERE sender_id = u.telegram_id
+                ), 0) as anon_chat_count,
+                COALESCE((
+                    SELECT COUNT(*) FROM anon_matches
+                    WHERE user_a = u.telegram_id OR user_b = u.telegram_id
+                ), 0) as total_anon_matches
+            FROM users u
+            WHERE u.is_active = TRUE
+            ORDER BY u.created_at DESC
+        """)
+        
+        return [dict(row) for row in users]
+    finally:
+        await release_db(conn)
+
+
+# ========== ADMIN PANEL DATABASE FUNCTIONS ==========
+async def get_admin_user_messages(telegram_id):
+    """Admin uchun - foydalanuvchining barcha xabarlarini qaytaradi (regular + anonymous)."""
+    conn = await get_db()
+    try:
+        # Regular chat messages
+        regular_messages = await conn.fetch("""
+            SELECT 
+                m.id,
+                m.sender_id,
+                m.message,
+                m.created_at,
+                'regular' as message_type,
+                m.match_id,
+                m.is_read
+            FROM chat_messages m
+            WHERE m.sender_id = $1 
+               OR m.match_id IN (
+                   SELECT id FROM matches WHERE user1 = $1 OR user2 = $1
+               )
+            ORDER BY m.created_at DESC
+            LIMIT 1000
+        """, telegram_id)
+        
+        # Anonymous chat messages
+        anon_messages = await conn.fetch("""
+            SELECT 
+                acm.id,
+                acm.sender_id,
+                acm.message,
+                acm.created_at,
+                'anonymous' as message_type,
+                am.id as anon_match_id,
+                CASE WHEN am.user_a = $1 THEN 'sent' ELSE 'received' END as direction,
+                CASE WHEN am.user_a = $1 THEN am.user_b ELSE am.user_a END as other_user_id
+            FROM anon_chat_messages acm
+            JOIN anon_matches am ON acm.anon_match_id = am.id
+            WHERE am.user_a = $1 OR am.user_b = $1
+            ORDER BY acm.created_at DESC
+            LIMIT 1000
+        """, telegram_id)
+        
+        all_messages = []
+        
+        # Process regular messages
+        for msg in regular_messages:
+            match = await conn.fetchrow("SELECT user1, user2 FROM matches WHERE id = $1", msg['match_id'])
+            if match:
+                other_user_id = match['user2'] if match['user1'] == telegram_id else match['user1']
+                other_user = await conn.fetchrow(
+                    "SELECT full_name, username FROM users WHERE telegram_id = $1", 
+                    other_user_id
+                )
+                
+                all_messages.append({
+                    'id': msg['id'],
+                    'type': 'regular',
+                    'sender_id': msg['sender_id'],
+                    'message': msg['message'],
+                    'created_at': msg['created_at'].isoformat() if msg['created_at'] else None,
+                    'direction': 'sent' if msg['sender_id'] == telegram_id else 'received',
+                    'match_id': msg['match_id'],
+                    'other_user_id': other_user_id,
+                    'other_user_name': other_user['full_name'] if other_user else 'Unknown',
+                    'other_user_username': other_user['username'] if other_user else '',
+                    'is_read': msg['is_read']
+                })
+        
+        # Process anonymous messages
+        for msg in anon_messages:
+            all_messages.append({
+                'id': msg['id'],
+                'type': 'anonymous',
+                'sender_id': msg['sender_id'],
+                'message': msg['message'],
+                'created_at': msg['created_at'].isoformat() if msg['created_at'] else None,
+                'direction': msg['direction'],
+                'anon_match_id': msg['anon_match_id'],
+                'other_user_id': msg['other_user_id']
+            })
+        
+        all_messages.sort(key=lambda x: x['created_at'] or '', reverse=True)
+        
+        return all_messages
+        
+    finally:
+        await release_db(conn)
+
+
+async def get_admin_all_users_with_message_counts():
+    """Admin uchun - barcha foydalanuvchilar va ularning xabar/chat soni."""
+    conn = await get_db()
+    try:
+        users = await conn.fetch("""
+            SELECT 
+                u.telegram_id,
+                u.username,
+                u.full_name,
+                u.gender,
+                u.age,
+                u.city,
+                u.interests,
+                u.zodiac,
+                u.goals,
+                u.photo_file_id,
+                u.photo_base64,
+                u.created_at,
+                COALESCE((
+                    SELECT COUNT(DISTINCT match_id) FROM chat_messages 
+                    WHERE sender_id = u.telegram_id OR match_id IN (
+                        SELECT id FROM matches WHERE user1 = u.telegram_id OR user2 = u.telegram_id
+                    )
+                ), 0) as chat_count,
+                COALESCE((
+                    SELECT COUNT(*) FROM chat_messages 
+                    WHERE sender_id = u.telegram_id
+                ), 0) as messages_sent,
+                COALESCE((
+                    SELECT COUNT(DISTINCT anon_match_id) FROM anon_chat_messages
+                    WHERE sender_id = u.telegram_id
+                ), 0) as anon_chat_count,
+                COALESCE((
+                    SELECT COUNT(*) FROM anon_matches
+                    WHERE user_a = u.telegram_id OR user_b = u.telegram_id
+                ), 0) as total_anon_matches
+            FROM users u
+            WHERE u.is_active = TRUE
+            ORDER BY u.created_at DESC
+        """)
+        
+        return [dict(row) for row in users]
+    finally:
+        await release_db(conn)
