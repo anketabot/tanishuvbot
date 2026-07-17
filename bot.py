@@ -4450,10 +4450,63 @@ async def visibility_scheduler():
         await asyncio.sleep(3600)  # har soatda tekshiradi, lekin haftada bir marta ishlaydi
 
 
+async def incomplete_profile_cleanup_scheduler():
+    """Doimiy fon jarayoni: anketasi hech qachon to'liq to'ldirilmagan
+    foydalanuvchilarni (masalan, faqat /start bosib tilni tanlagan, lekin
+    anketani to'ldirmay tashlab ketgan) bazadan butunlay o'chirib tashlaydi.
+
+    Shu bilan botda va qidiruvda doim faqat haqiqiy, anketasi to'liq
+    foydalanuvchilar qoladi ("null" ism, "Shahar ko'rsatilmagan" kabi bo'sh
+    profillar bazada saqlanib qolmaydi).
+
+    24 soatlik "grace period" beriladi — hozirgina ro'yxatdan o'ta
+    boshlagan, anketani hali to'ldirib ulgurmagan foydalanuvchi bexosdan
+    o'chirib yuborilmasligi uchun.
+    """
+    logger.info("To'liq bo'lmagan anketalarni tozalash scheduleri ishga tushdi")
+    while True:
+        try:
+            deleted = await db.delete_incomplete_profiles(grace_hours=24)
+            if deleted:
+                logger.info(f"Tozalash: {deleted} ta to'liq to'ldirilmagan anketa bazadan o'chirildi.")
+        except Exception as e:
+            logger.error(f"Incomplete profile cleanup scheduler xatolik: {e}", exc_info=True)
+        await asyncio.sleep(3600)  # har soatda ishlaydi
+
+
+async def admin_cleanup_incomplete_profiles_api(request):
+    """Admin uchun: to'liq bo'lmagan anketalarni istalgan vaqtda qo'lda
+    tozalash (masalan, avvaldan bazada to'planib qolgan eski "bo'sh"
+    qatorlarni darhol o'chirish uchun)."""
+    try:
+        data = await request.json()
+        if ADMIN_PASSWORD and data.get('admin_password') != ADMIN_PASSWORD:
+            return web.json_response({'success': False, 'error': 'Unauthorized'}, status=403)
+
+        grace_hours = int(data.get('grace_hours', 24))
+        deleted = await db.delete_incomplete_profiles(grace_hours=grace_hours)
+        logger.info(f"Anketa tozalash (qo'lda ishga tushirildi): {deleted} ta o'chirildi.")
+        return web.json_response({'success': True, 'deleted': deleted})
+    except Exception as e:
+        logger.error(f"ADMIN CLEANUP INCOMPLETE PROFILES API xatolik: {e}", exc_info=True)
+        return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+
 async def main():
     await db.init_pool()
     await db.init_db()
     logger.info("Bot ishga tushdi...")
+
+    # Bazada avvaldan to'planib qolgan, anketasi to'liq to'ldirilmagan
+    # "bo'sh" foydalanuvchilarni darhol tozalab tashlaymiz (keyingi tozalash
+    # esa incomplete_profile_cleanup_scheduler orqali har soatda avtomatik davom etadi).
+    try:
+        deleted_at_startup = await db.delete_incomplete_profiles(grace_hours=24)
+        if deleted_at_startup:
+            logger.info(f"Bot ishga tushishida tozalandi: {deleted_at_startup} ta to'liq to'ldirilmagan anketa o'chirildi.")
+    except Exception as e:
+        logger.error(f"Ishga tushishdagi anketa tozalash xatolik: {e}", exc_info=True)
+
     app = web.Application()
     app.middlewares.append(cors_middleware)
     app.middlewares.append(ban_check_middleware)
@@ -4508,6 +4561,7 @@ async def main():
     app.router.add_post('/api/anon/disconnect', anon_disconnect_api)
     app.router.add_post('/api/admin/anon/run_match', admin_anon_run_match_api)  # istalgan vaqtda qo'lda ishga tushirish
     app.router.add_post('/api/admin/visibility/run', admin_visibility_run_api)  # haftalik ko'rinuvchanlik/TOP-10 ni qo'lda ishga tushirish
+    app.router.add_post('/api/admin/cleanup_incomplete_profiles', admin_cleanup_incomplete_profiles_api)  # to'liq bo'lmagan anketalarni qo'lda tozalash
 
     # Real-time chat (WebSocket)
     app.router.add_get('/ws/chat', chat_ws_handler)
@@ -4515,6 +4569,7 @@ async def main():
     asyncio.create_task(anon_match_scheduler())
     asyncio.create_task(anon_queue_matcher())
     asyncio.create_task(visibility_scheduler())
+    asyncio.create_task(incomplete_profile_cleanup_scheduler())
 
     webhook_url = os.environ.get('WEBHOOK_URL')
     if webhook_url:
