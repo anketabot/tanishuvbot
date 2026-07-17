@@ -1611,6 +1611,7 @@ async def count_search_users(telegram_id, filters):
         searcher_is_serious = 'goal_jiddiy' in searcher_goals
 
         query = """
+            SELECT COUNT(*) AS total
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
