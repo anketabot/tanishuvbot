@@ -2942,9 +2942,9 @@ async def get_admin_user_messages(telegram_id):
                 m.match_id,
                 m.is_read
             FROM chat_messages m
-            WHERE m.sender_id = \ 
+            WHERE m.sender_id = $1
                OR m.match_id IN (
-                   SELECT id FROM matches WHERE user1 = \ OR user2 = \
+                   SELECT id FROM matches WHERE user1 = $1 OR user2 = $1
                )
             ORDER BY m.created_at DESC
             LIMIT 1000
@@ -2959,11 +2959,11 @@ async def get_admin_user_messages(telegram_id):
                 acm.created_at,
                 'anonymous' as message_type,
                 am.id as anon_match_id,
-                CASE WHEN am.user_a = \ THEN 'sent' ELSE 'received' END as direction,
-                CASE WHEN am.user_a = \ THEN am.user_b ELSE am.user_a END as other_user_id
+                CASE WHEN am.user_a = $1 THEN 'sent' ELSE 'received' END as direction,
+                CASE WHEN am.user_a = $1 THEN am.user_b ELSE am.user_a END as other_user_id
             FROM anon_chat_messages acm
             JOIN anon_matches am ON acm.anon_match_id = am.id
-            WHERE am.user_a = \ OR am.user_b = \
+            WHERE am.user_a = $1 OR am.user_b = $1
             ORDER BY acm.created_at DESC
             LIMIT 1000
         """, telegram_id)
@@ -2972,11 +2972,11 @@ async def get_admin_user_messages(telegram_id):
         
         # Process regular messages
         for msg in regular_messages:
-            match = await conn.fetchrow("SELECT user1, user2 FROM matches WHERE id = \\", msg['match_id'])
+            match = await conn.fetchrow("SELECT user1, user2 FROM matches WHERE id = $1", msg['match_id'])
             if match:
                 other_user_id = match['user2'] if match['user1'] == telegram_id else match['user1']
                 other_user = await conn.fetchrow(
-                    "SELECT full_name, username FROM users WHERE telegram_id = \\", 
+                    "SELECT full_name, username FROM users WHERE telegram_id = $1", 
                     other_user_id
                 )
                 
