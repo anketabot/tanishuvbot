@@ -1619,6 +1619,10 @@ def _validate_profile_payload(profile: dict):
     if not spoken_language:
         return False, "spoken_language is required."
 
+    has_photo = bool(profile.get('photo_base64')) or bool(profile.get('photo_file_id'))
+    if not has_photo:
+        return False, "photo is required."
+
     return True, None
 
 
