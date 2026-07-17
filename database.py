@@ -1181,6 +1181,12 @@ async def search_users(telegram_id, filters):
             AND full_name IS NOT NULL AND full_name != ''
             AND age IS NOT NULL
             AND gender IS NOT NULL AND gender != ''
+            AND city IS NOT NULL AND city != ''
+            AND spoken_language IS NOT NULL AND cardinality(spoken_language) > 0
+            AND (
+                (photo_base64 IS NOT NULL AND photo_base64 != '')
+                OR (photo_file_id IS NOT NULL AND photo_file_id != '')
+            )
             -- Hozir ban qilingan foydalanuvchilar boshqalarning qidiruvida
             -- umuman ko'rinmaydi (xavfsizlik talabi)
             AND (banned_until IS NULL OR banned_until <= NOW())
@@ -1485,6 +1491,12 @@ async def search_users_by_zodiac(telegram_id, filters):
             AND full_name IS NOT NULL AND full_name != ''
             AND age IS NOT NULL
             AND gender IS NOT NULL AND gender != ''
+            AND city IS NOT NULL AND city != ''
+            AND spoken_language IS NOT NULL AND cardinality(spoken_language) > 0
+            AND (
+                (photo_base64 IS NOT NULL AND photo_base64 != '')
+                OR (photo_file_id IS NOT NULL AND photo_file_id != '')
+            )
             AND zodiac IS NOT NULL
             AND (banned_until IS NULL OR banned_until <= NOW())
             AND (
@@ -1605,6 +1617,12 @@ async def count_search_users(telegram_id, filters):
             AND full_name IS NOT NULL AND full_name != ''
             AND age IS NOT NULL
             AND gender IS NOT NULL AND gender != ''
+            AND city IS NOT NULL AND city != ''
+            AND spoken_language IS NOT NULL AND cardinality(spoken_language) > 0
+            AND (
+                (photo_base64 IS NOT NULL AND photo_base64 != '')
+                OR (photo_file_id IS NOT NULL AND photo_file_id != '')
+            )
             AND (banned_until IS NULL OR banned_until <= NOW())
             AND (
                 only_serious_men = FALSE OR only_serious_men IS NULL
@@ -1765,7 +1783,11 @@ async def count_incomplete_profiles(grace_hours: int = 24):
     """Anketasi to'liq to'ldirilmagan (til tanlangandan keyin yaratilgan
     "bo'sh" qatorlar) foydalanuvchilar sonini qaytaradi. grace_hours —
     hali anketani to'ldirib ulgurmagan yangi foydalanuvchilarni bexosdan
-    o'chirib yubormaslik uchun berilgan muhlat."""
+    o'chirib yubormaslik uchun berilgan muhlat.
+
+    Majburiy maydonlar (frontenddagi anketa formasi bilan mos): full_name,
+    age, gender, city, spoken_language va rasm (photo_base64 yoki
+    photo_file_id). Shulardan biri ham bo'sh bo'lsa — anketa to'liq emas."""
     conn = await get_db()
     try:
         row = await conn.fetchrow(
@@ -1776,6 +1798,12 @@ async def count_incomplete_profiles(grace_hours: int = 24):
                 full_name IS NULL OR full_name = ''
                 OR age IS NULL
                 OR gender IS NULL OR gender = ''
+                OR city IS NULL OR city = ''
+                OR spoken_language IS NULL OR cardinality(spoken_language) = 0
+                OR (
+                    (photo_base64 IS NULL OR photo_base64 = '')
+                    AND (photo_file_id IS NULL OR photo_file_id = '')
+                )
             )
             """,
             str(grace_hours)
@@ -1788,9 +1816,14 @@ async def count_incomplete_profiles(grace_hours: int = 24):
 async def delete_incomplete_profiles(grace_hours: int = 24):
     """Anketasi to'liq to'ldirilmagan foydalanuvchilarni bazadan butunlay
     o'chirib tashlaydi. Faqat /start bosib tilni tanlagan, lekin anketani
-    hech qachon to'ldirmagan (full_name/age/gender bo'sh) foydalanuvchilar
-    o'chiriladi — shu bilan botda va qidiruvda doim faqat haqiqiy, to'liq
-    anketali foydalanuvchilar qoladi.
+    hech qachon to'ldirmagan (majburiy maydonlardan hech bo'lmasa bittasi
+    bo'sh) foydalanuvchilar o'chiriladi — shu bilan botda va qidiruvda doim
+    faqat haqiqiy, to'liq anketali foydalanuvchilar qoladi.
+
+    Majburiy maydonlar (frontenddagi anketa formasi bilan mos): full_name,
+    age, gender, city, spoken_language va rasm (photo_base64 yoki
+    photo_file_id). Shulardan biri ham bo'sh bo'lsa — anketa to'liq emas
+    deb hisoblanadi va shu qator butunlay o'chiriladi.
 
     grace_hours: hozirgina ro'yxatdan o'ta boshlagan (anketani hali
     to'ldirib ulgurmagan) foydalanuvchini bexosdan o'chirib yubormaslik
@@ -1808,6 +1841,12 @@ async def delete_incomplete_profiles(grace_hours: int = 24):
                 full_name IS NULL OR full_name = ''
                 OR age IS NULL
                 OR gender IS NULL OR gender = ''
+                OR city IS NULL OR city = ''
+                OR spoken_language IS NULL OR cardinality(spoken_language) = 0
+                OR (
+                    (photo_base64 IS NULL OR photo_base64 = '')
+                    AND (photo_file_id IS NULL OR photo_file_id = '')
+                )
             )
             RETURNING telegram_id
             """,
