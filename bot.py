@@ -2054,7 +2054,20 @@ async def start_handler(message: types.Message):
         )
         return
 
-    # Til tanlangan bo'lsa, asosiy menyu ko'rsatish
+    # Til tanlangan, lekin anketa hali to'ldirilmagan bo'lsa —
+    # faqat salomlashish va anketa to'ldirish tugmasini ko'rsatamiz
+    if not _is_profile_complete(user):
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text=t(lang, 'fill_profile'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+        greeting_text = t(lang, 'welcome', name=message.from_user.first_name) + "\n\n" + t(lang, 'please_fill_profile')
+        await message.answer(
+            greeting_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
+        return
+
+    # Til tanlangan va anketa to'ldirilgan bo'lsa, asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang, telegram_id)
     is_female = await db.is_female_user(telegram_id)
     welcome_text = t(lang, 'welcome', name=message.from_user.first_name)
@@ -2079,7 +2092,22 @@ async def set_language_callback(callback: types.CallbackQuery):
 
     await callback.answer(t(lang_code, 'language_changed', language_name=lang_name), show_alert=True)
 
-    # Asosiy menyu ko'rsatish
+    user = await db.get_user(callback.from_user.id)
+
+    # Anketa hali to'ldirilmagan bo'lsa — faqat salomlashish va
+    # anketa to'ldirish tugmasini ko'rsatamiz (asosiy menyu emas)
+    if not _is_profile_complete(user):
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text=t(lang_code, 'fill_profile'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+        greeting_text = t(lang_code, 'welcome', name=callback.from_user.first_name) + "\n\n" + t(lang_code, 'please_fill_profile')
+        await callback.message.edit_text(
+            greeting_text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup()
+        )
+        return
+
+    # Anketa to'ldirilgan bo'lsa, asosiy menyu ko'rsatish
     keyboard = await main_menu_keyboard(lang_code, callback.from_user.id)
     is_female = await db.is_female_user(callback.from_user.id)
     welcome_text = t(lang_code, 'welcome', name=callback.from_user.first_name)
@@ -2134,8 +2162,10 @@ async def show_profile_handler(message_or_callback):
 
     lang = await get_user_lang(user_id)
     user = await db.get_user(user_id)
-    if not user:
-        await send_func(t(lang, 'no_profile'))
+    if not _is_profile_complete(user):
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text=t(lang, 'fill_profile'), web_app=WebAppInfo(url=f"{WEBAPP_URL}/index.html")))
+        await send_func(t(lang, 'no_profile'), reply_markup=builder.as_markup())
         return
 
     gender_icon = "👨" if user["gender"] == "erkak" else "👩"
@@ -2584,8 +2614,12 @@ async def web_app_data_handler(message: types.Message):
             success = await db.save_user(message.from_user.id, profile_data)
             if success:
                 keyboard = await main_menu_keyboard(lang, message.from_user.id)
+                is_female = await db.is_female_user(message.from_user.id)
+                text = t(lang, 'profile_saved') + "\n\n" + t(lang, 'welcome', name=message.from_user.first_name)
+                if not is_female:
+                    text += t(lang, 'limits_info')
                 await message.answer(
-                    t(lang, 'profile_saved'),
+                    text,
                     parse_mode="Markdown",
                     reply_markup=keyboard
                 )
