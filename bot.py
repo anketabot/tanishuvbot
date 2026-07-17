@@ -4015,7 +4015,14 @@ async def moderate_photo_api(request: web.Request):
     Javob: { success, ok, reason }
     """
     try:
-        data = await request.json()
+        try:
+            data = await request.json()
+        except json.JSONDecodeError:
+            # Mijoz bo'sh yoki noto'g'ri (masalan, rasm juda katta bo'lib,
+            # ulanish uzilib qolgan) so'rov yuborgan bo'lishi mumkin.
+            # Bunda 500 o'rniga aniq 400 xatolik qaytaramiz.
+            return web.json_response({'success': False, 'error': 'Invalid or empty request body'}, status=400)
+
         photo_base64 = data.get('photo_base64', '')
         if not photo_base64:
             return web.json_response({'success': False, 'error': 'photo_base64 required'}, status=400)
