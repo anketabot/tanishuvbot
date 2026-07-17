@@ -4,10 +4,7 @@ import random
 from datetime import datetime, date, timedelta
 from config import DATABASE_URL
 
-# ========== CONNECTION POOL ==========
-# Har bir so'rov uchun yangi TCP/SSL ulanish ochish o'rniga (bu yuqori
-# yuklamada Postgres'ning max_connections limitini tugatib, sock_connect
-# TimeoutError'larga olib kelgan edi), bitta umumiy pool ishlatiladi.
+
 _pool = None
 
 
@@ -1176,6 +1173,11 @@ async def search_users(telegram_id, filters):
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
+            -- Faqat anketasi to'liq to'ldirilgan (til tanlangandan keyin yaratilgan
+            -- "bo'sh" qatorlar bu yerda chiqmasligi kerak)
+            AND full_name IS NOT NULL AND full_name != ''
+            AND age IS NOT NULL
+            AND gender IS NOT NULL AND gender != ''
             -- Hozir ban qilingan foydalanuvchilar boshqalarning qidiruvida
             -- umuman ko'rinmaydi (xavfsizlik talabi)
             AND (banned_until IS NULL OR banned_until <= NOW())
@@ -1477,6 +1479,9 @@ async def search_users_by_zodiac(telegram_id, filters):
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
+            AND full_name IS NOT NULL AND full_name != ''
+            AND age IS NOT NULL
+            AND gender IS NOT NULL AND gender != ''
             AND zodiac IS NOT NULL
             AND (banned_until IS NULL OR banned_until <= NOW())
             AND (
@@ -1591,10 +1596,12 @@ async def count_search_users(telegram_id, filters):
         searcher_is_serious = 'goal_jiddiy' in searcher_goals
 
         query = """
-            SELECT COUNT(*) AS total
             FROM users
             WHERE telegram_id != ALL($1::bigint[])
             AND is_active = TRUE
+            AND full_name IS NOT NULL AND full_name != ''
+            AND age IS NOT NULL
+            AND gender IS NOT NULL AND gender != ''
             AND (banned_until IS NULL OR banned_until <= NOW())
             AND (
                 only_serious_men = FALSE OR only_serious_men IS NULL
