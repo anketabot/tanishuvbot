@@ -1585,6 +1585,43 @@ def _is_profile_complete(user: dict) -> bool:
     return True
 
 
+def _validate_profile_payload(profile: dict):
+    """Anketa saqlashdan oldin serverda tekshirish.
+    Frontend validatsiyasi bo'lsa ham, to'g'ridan-to'g'ri API'ga yuborilgan
+    yoki nosoz so'rovlar natijasida bazaga bo'sh/"null" qiymatli anketalar
+    saqlanib qolmasligi uchun serverda ham majburiy tekshiruv qilinadi.
+    Returns (is_valid: bool, error_message: str | None)
+    """
+    if not isinstance(profile, dict):
+        return False, "Profile data is not valid."
+
+    full_name = (profile.get('full_name') or '').strip() if isinstance(profile.get('full_name'), str) else profile.get('full_name')
+    if not full_name:
+        return False, "full_name is required."
+
+    age = profile.get('age')
+    try:
+        age = int(age)
+    except (TypeError, ValueError):
+        return False, "age is required and must be a number."
+    if age < 16 or age > 80:
+        return False, "age must be between 16 and 80."
+
+    gender = db.normalize_gender(profile.get('gender'))
+    if not gender:
+        return False, "gender is required."
+
+    city = (profile.get('city') or '').strip() if isinstance(profile.get('city'), str) else profile.get('city')
+    if not city:
+        return False, "city is required."
+
+    spoken_language = profile.get('spoken_language')
+    if not spoken_language:
+        return False, "spoken_language is required."
+
+    return True, None
+
+
 async def get_or_create_group_invite_link(telegram_id):
     """
     Har bir foydalanuvchi uchun shaxsiy (unikal) guruh taklifnoma havolasini
@@ -2611,6 +2648,12 @@ async def web_app_data_handler(message: types.Message):
             profile_data["username"] = message.from_user.username
             profile_data["telegram_id"] = message.from_user.id
 
+            is_valid, validation_error = _validate_profile_payload(profile_data)
+            if not is_valid:
+                logger.warning(f"Anketa saqlanmadi (validatsiya): telegram_id={message.from_user.id}, sabab={validation_error}")
+                await message.answer(t(lang, 'save_error'))
+                return
+
             success = await db.save_user(message.from_user.id, profile_data)
             if success:
                 keyboard = await main_menu_keyboard(lang, message.from_user.id)
@@ -3207,6 +3250,11 @@ async def save_profile_api(request):
             return web.json_response({'success': False, 'error': 'telegram_id required'}, status=400)
         if not profile:
             return web.json_response({'success': False, 'error': 'profile required'}, status=400)
+
+        is_valid, validation_error = _validate_profile_payload(profile)
+        if not is_valid:
+            logger.warning(f"SAVE PROFILE API validatsiya xatolik: telegram_id={telegram_id}, sabab={validation_error}")
+            return web.json_response({'success': False, 'error': validation_error}, status=400)
 
 
         profile['telegram_id'] = int(telegram_id)
