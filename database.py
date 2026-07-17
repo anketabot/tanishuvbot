@@ -4,7 +4,10 @@ import random
 from datetime import datetime, date, timedelta
 from config import DATABASE_URL
 
-
+# ========== CONNECTION POOL ==========
+# Har bir so'rov uchun yangi TCP/SSL ulanish ochish o'rniga (bu yuqori
+# yuklamada Postgres'ning max_connections limitini tugatib, sock_connect
+# TimeoutError'larga olib kelgan edi), bitta umumiy pool ishlatiladi.
 _pool = None
 
 
@@ -1754,6 +1757,76 @@ async def get_all_users():
             "FROM users WHERE is_active = TRUE ORDER BY created_at DESC"
         )
         return [dict(row) for row in rows]
+    finally:
+        await release_db(conn)
+
+
+async def count_incomplete_profiles(grace_hours: int = 24):
+    """Anketasi to'liq to'ldirilmagan (til tanlangandan keyin yaratilgan
+    "bo'sh" qatorlar) foydalanuvchilar sonini qaytaradi. grace_hours —
+    hali anketani to'ldirib ulgurmagan yangi foydalanuvchilarni bexosdan
+    o'chirib yubormaslik uchun berilgan muhlat."""
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            """
+            SELECT COUNT(*) AS total FROM users
+            WHERE created_at < NOW() - ($1 || ' hours')::interval
+            AND (
+                full_name IS NULL OR full_name = ''
+                OR age IS NULL
+                OR gender IS NULL OR gender = ''
+            )
+            """,
+            str(grace_hours)
+        )
+        return row['total'] if row else 0
+    finally:
+        await release_db(conn)
+
+
+async def delete_incomplete_profiles(grace_hours: int = 24):
+    """Anketasi to'liq to'ldirilmagan foydalanuvchilarni bazadan butunlay
+    o'chirib tashlaydi. Faqat /start bosib tilni tanlagan, lekin anketani
+    hech qachon to'ldirmagan (full_name/age/gender bo'sh) foydalanuvchilar
+    o'chiriladi — shu bilan botda va qidiruvda doim faqat haqiqiy, to'liq
+    anketali foydalanuvchilar qoladi.
+
+    grace_hours: hozirgina ro'yxatdan o'ta boshlagan (anketani hali
+    to'ldirib ulgurmagan) foydalanuvchini bexosdan o'chirib yubormaslik
+    uchun kutish muhlati (soatlarda).
+
+    Returns: o'chirilgan qatorlar soni.
+    """
+    conn = await get_db()
+    try:
+        deleted_ids = await conn.fetch(
+            """
+            DELETE FROM users
+            WHERE created_at < NOW() - ($1 || ' hours')::interval
+            AND (
+                full_name IS NULL OR full_name = ''
+                OR age IS NULL
+                OR gender IS NULL OR gender = ''
+            )
+            RETURNING telegram_id
+            """,
+            str(grace_hours)
+        )
+        deleted_count = len(deleted_ids)
+        if deleted_count:
+            ids = [r['telegram_id'] for r in deleted_ids]
+            # Shu foydalanuvchilarga tegishli, bog'liqlik zanjiri bo'lmagan
+            # yordamchi jadvallardagi qoldiqlarni ham tozalaymiz (agar mavjud bo'lsa).
+            try:
+                await conn.execute("DELETE FROM daily_limits WHERE telegram_id = ANY($1::bigint[])", ids)
+            except Exception:
+                pass
+            try:
+                await conn.execute("DELETE FROM user_invite_links WHERE telegram_id = ANY($1::bigint[])", ids)
+            except Exception:
+                pass
+        return deleted_count
     finally:
         await release_db(conn)
 
